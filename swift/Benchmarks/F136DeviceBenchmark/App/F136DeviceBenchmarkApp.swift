@@ -1,4 +1,5 @@
 import EngineSimCore
+import EngineSound
 import SwiftUI
 import UIKit
 
@@ -103,30 +104,164 @@ struct F136DeviceBenchmarkApp: App {
     }
 }
 
+/// Prints to stdout so `xcrun devicectl device process launch --console` captures it.
+private func log(_ message: String) {
+    print(message)
+    fflush(stdout)
+}
+
+/// Live engine audio for the listening controls. The player's worker thread is
+/// the only caller of render; RPM changes replace the source instead.
+private final class LiveEngineSource: EngineSoundSource {
+    let sampleRate = Double(ENGINE_SIM_SAMPLE_RATE)
+    private let core: OpaquePointer
+
+    init?(profile: EngineSimProfile, rpm: Double) {
+        guard let core = engine_sim_create(profile, Int32(Benchmark.simulationFrequency)) else { return nil }
+        self.core = core
+        engine_sim_hold_rpm(core, rpm)
+    }
+
+    deinit { engine_sim_destroy(core) }
+
+    func setTargetRPM(_ rpm: Double) { engine_sim_set_target_rpm(core, rpm) }
+    func setThrottle(_ throttle: Double) { engine_sim_set_throttle(core, throttle) }
+    func setIgnition(_ enabled: Bool) { engine_sim_set_ignition(core, enabled ? 1 : 0) }
+
+    func render(into frames: UnsafeMutableBufferPointer<Int16>) -> Int {
+        guard let base = frames.baseAddress else { return 0 }
+        return Int(engine_sim_render(core, base, Int32(frames.count)))
+    }
+}
+
+@MainActor
+private final class Listener: ObservableObject {
+    struct Engine: Equatable {
+        let profile: EngineSimProfile
+        let name: String
+    }
+
+    static let ls = Engine(profile: ENGINE_SIM_PROFILE_LS_V8, name: "LS V8")
+    static let f136 = Engine(profile: ENGINE_SIM_PROFILE_F136_V8, name: "F136 V8")
+    // RPMs that render without tripping combustion_chamber.cpp at 1000 Hz.
+    static let rpmPresets = [2_000.0, 3_000.0, 4_000.0, 5_000.0]
+
+    @Published private(set) var playing: Engine?
+    @Published private(set) var status = "Stopped"
+    @Published var rpm = Benchmark.targetRPM
+
+    private let player = EngineSoundPlayer()
+    // Player start and stop block while buffering, so keep them off the main thread.
+    private let queue = DispatchQueue(label: "F136DeviceBenchmark.listen")
+
+    func play(_ engine: Engine) {
+        playing = engine
+        let rpm = rpm
+        report("Starting \(engine.name) @ \(Int(rpm)) RPM…")
+        queue.async { [player] in
+            guard let source = LiveEngineSource(profile: engine.profile, rpm: rpm) else {
+                Task { @MainActor in self.report("Playback error: \(engine.name) creation failed") }
+                return
+            }
+            do {
+                // Starts the player, or cross-fades from the current engine.
+                try player.switchSource(to: source)
+                Task { @MainActor in self.report("Playing \(engine.name) @ \(Int(rpm)) RPM") }
+            } catch {
+                Task { @MainActor in self.report("Playback error: \(error)") }
+            }
+        }
+    }
+
+    func selectRPM(_ value: Double) {
+        rpm = value
+        if let playing { play(playing) }
+    }
+
+    func stop() {
+        playing = nil
+        queue.async { [player] in
+            let underruns = player.underrunCount
+            player.stop()
+            Task { @MainActor in self.report("Stopped (underruns: \(underruns))") }
+        }
+    }
+
+    /// Plays each engine briefly and logs the outcome for console verification.
+    func selfTest() async {
+        play(Self.ls)
+        try? await Task.sleep(for: .seconds(4))
+        play(Self.f136)
+        try? await Task.sleep(for: .seconds(4))
+        let (underruns, frames) = await withCheckedContinuation { continuation in
+            queue.async { [player] in
+                continuation.resume(returning: (player.underrunCount, player.consumedFrameCount))
+            }
+        }
+        report("Self-test: consumed \(frames) frames, underruns \(underruns)")
+        stop()
+    }
+
+    private func report(_ message: String) {
+        status = message
+        log("[listen] \(message)")
+    }
+}
+
 private struct BenchmarkView: View {
     @State private var isRunning = false
     @State private var result = "Run on a signed physical iPhone. Simulator results do not satisfy issue #6."
+    @StateObject private var listener = Listener()
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("F136 device benchmark").font(.title.bold())
-                Button(isRunning ? "Running…" : "Run LS and F136 benchmark") {
-                    isRunning = true
-                    let device = UIDevice.current.name
-                    let system = "iOS \(UIDevice.current.systemVersion)"
-                    Task.detached(priority: .userInitiated) {
-                        let report = Benchmark.run(device: device, system: system)
-                        await MainActor.run {
-                            result = report
-                            isRunning = false
-                        }
+                Button(isRunning ? "Running…" : "Run LS and F136 benchmark", action: runBenchmark)
+                    .disabled(isRunning || listener.playing != nil)
+                Text(result).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+
+                Divider()
+                Text("Listen").font(.title2.bold())
+                Picker("RPM", selection: Binding(get: { listener.rpm }, set: listener.selectRPM)) {
+                    ForEach(Listener.rpmPresets, id: \.self) { Text("\(Int($0))").tag($0) }
+                }
+                .pickerStyle(.segmented)
+                HStack {
+                    ForEach([Listener.ls, Listener.f136], id: \.name) { engine in
+                        Button("Play \(engine.name)") { listener.play(engine) }
+                            .buttonStyle(.borderedProminent)
+                            .tint(listener.playing == engine ? .green : .accentColor)
                     }
+                    Button("Stop", role: .destructive, action: listener.stop)
+                        .buttonStyle(.bordered)
+                        .disabled(listener.playing == nil)
                 }
                 .disabled(isRunning)
-                Text(result).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                Text(listener.status).font(.footnote).foregroundStyle(.secondary)
             }
             .padding()
+        }
+        .task {
+            // Headless runs: set DEVICECTL_CHILD_BENCHMARK_AUTORUN=1 or
+            // DEVICECTL_CHILD_LISTEN_SELFTEST=1 when launching via devicectl.
+            let environment = ProcessInfo.processInfo.environment
+            if environment["BENCHMARK_AUTORUN"] == "1" { runBenchmark() }
+            if environment["LISTEN_SELFTEST"] == "1" { await listener.selfTest() }
+        }
+    }
+
+    private func runBenchmark() {
+        isRunning = true
+        let device = UIDevice.current.name
+        let system = "iOS \(UIDevice.current.systemVersion)"
+        Task.detached(priority: .userInitiated) {
+            let report = Benchmark.run(device: device, system: system)
+            log(report)
+            await MainActor.run {
+                result = report
+                isRunning = false
+            }
         }
     }
 }

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0287E21DCBB74E70BD04951A /* EngineSimCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7D452C376566FC975D9E1D8B /* EngineSimCore */; };
+		23155071C0D31457177BF373 /* EngineSound in Frameworks */ = {isa = PBXBuildFile; productRef = 23E2EBD5C5FCF09B738061AA /* EngineSound */; };
 		815D4112BA96003C6D2F93CF /* F136DeviceBenchmarkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661AA26AFD593252A68632C8 /* F136DeviceBenchmarkApp.swift */; };
 /* End PBXBuildFile section */
 
@@ -23,6 +24,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0287E21DCBB74E70BD04951A /* EngineSimCore in Frameworks */,
+				23155071C0D31457177BF373 /* EngineSound in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,6 +81,7 @@
 			name = F136DeviceBenchmark;
 			packageProductDependencies = (
 				7D452C376566FC975D9E1D8B /* EngineSimCore */,
+				23E2EBD5C5FCF09B738061AA /* EngineSound */,
 			);
 			productName = F136DeviceBenchmark;
 			productReference = 297FD330A6BC2768DBEE75F3 /* F136DeviceBenchmark.app */;
@@ -318,6 +321,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		23E2EBD5C5FCF09B738061AA /* EngineSound */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EngineSound;
+		};
 		7D452C376566FC975D9E1D8B /* EngineSimCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = EngineSimCore;

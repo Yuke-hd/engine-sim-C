@@ -77,6 +77,15 @@ assertion at 1000 Hz simulation. A Simulator
 run can check that the app builds, but only the signed physical-iPhone result
 satisfies this acceptance gate.
 
+The app's **Listen** section plays the LS V8 or F136 V8 live through the device
+speaker with `EngineSoundPlayer` at 1000 Hz simulation, holding a preset RPM
+(2000-5000, which render without tripping that assertion); switching engines or
+RPM cross-fades to a new core. For headless runs through
+`xcrun devicectl device process launch --console`, set
+`DEVICECTL_CHILD_BENCHMARK_AUTORUN=1` to run the benchmark at launch, or
+`DEVICECTL_CHILD_LISTEN_SELFTEST=1` to play each engine for 4 s; both print to
+the console.
+
 Changes to upstream files, needed so clang builds them:
 
 - `include/units.h`, `include/constants.h`: `extern constexpr` to `inline constexpr`
