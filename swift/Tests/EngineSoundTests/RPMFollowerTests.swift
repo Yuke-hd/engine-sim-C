@@ -48,6 +48,36 @@ final class RPMFollowerTests: XCTestCase {
         XCTAssertEqual(unknown.gain, 0)
     }
 
+    func testRepeatedInvalidReadingsDoNotRestartTheFade() {
+        var follower = RPMFollower(rpmRange: range, fadeDuration: 0.2)
+        _ = follower.update(.init(rpm: 3_000, freshness: .verified, age: 0,
+                                  acceleratorThrottle: 0.5, sampleTime: 0))
+        _ = follower.update(.init(rpm: 3_000, freshness: .stale, age: 0,
+                                  acceleratorThrottle: 0.5, sampleTime: 0.1))
+        let disconnected = follower.update(.init(rpm: nil, freshness: .disconnected,
+                                                 age: nil, acceleratorThrottle: nil,
+                                                 sampleTime: 0.2))
+        XCTAssertEqual(disconnected.gain, 0.5, accuracy: 0.001)
+        let unknown = follower.update(.init(rpm: nil, freshness: .unverified,
+                                            age: nil, acceleratorThrottle: nil,
+                                            sampleTime: 0.3))
+        XCTAssertEqual(unknown.targetRPM, 800)
+        XCTAssertEqual(unknown.throttle, 0)
+        XCTAssertEqual(unknown.gain, 0, accuracy: 0.001)
+        XCTAssertEqual(follower.output(at: 1).gain, 0)
+    }
+
+    func testInvalidUpdateAfterAgeExpiryKeepsExpiryFadeDeadline() {
+        var follower = RPMFollower(rpmRange: range, maxReadingAge: 0.2,
+                                   fadeDuration: 0.2)
+        _ = follower.update(.init(rpm: 3_000, freshness: .verified, age: 0,
+                                  acceleratorThrottle: 0.5, sampleTime: 0))
+        let stale = follower.update(.init(rpm: nil, freshness: .stale, age: nil,
+                                          acceleratorThrottle: nil, sampleTime: 0.3))
+        XCTAssertEqual(stale.gain, 0.5, accuracy: 0.001)
+        XCTAssertEqual(follower.output(at: 0.4).gain, 0, accuracy: 0.001)
+    }
+
     func testReadingExpiresWithoutAnotherUpdate() {
         var follower = RPMFollower(rpmRange: range, maxReadingAge: 0.3, fadeDuration: 0.2)
         _ = follower.update(.init(rpm: 3_000, freshness: .verified, age: 0.1,

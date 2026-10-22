@@ -85,18 +85,28 @@ public struct RPMFollower {
             return output(at: latestInput?.sampleTime ?? 0)
         }
 
-        let isFirstReading = latestInput == nil
+        let previousInput = latestInput
         let before = output(at: input.sampleTime)
-        let hadLiveReading = latestInput.map { isLive($0, at: input.sampleTime) } ?? false
+        let hadLiveReading = previousInput.map { isLive($0, at: input.sampleTime) } ?? false
+        let expiry = previousInput.flatMap { previous -> Double? in
+            guard isLive(previous, at: previous.sampleTime), !hadLiveReading else { return nil }
+            return previous.sampleTime + maxReadingAge - (previous.age ?? 0)
+        }
+        let gainAtExpiry = expiry.map { output(at: $0).gain }
         latestInput = input
-        transitionTime = input.sampleTime
 
         guard isLive(input, at: input.sampleTime), let rpm = input.rpm else {
             fromRPM = rpmRange.lowerBound
             toRPM = rpmRange.lowerBound
             fromThrottle = 0
             toThrottle = 0
-            fromGain = before.gain
+            if let expiry, let gainAtExpiry {
+                transitionTime = expiry
+                fromGain = gainAtExpiry
+            } else if hadLiveReading || previousInput == nil {
+                transitionTime = input.sampleTime
+                fromGain = before.gain
+            }
             toGain = 0
             derived = false
             previousLiveRPM = nil
@@ -121,11 +131,12 @@ public struct RPMFollower {
             derived = true
         }
 
+        transitionTime = input.sampleTime
         fromRPM = hadLiveReading ? before.targetRPM : clampedRPM
         toRPM = clampedRPM
         fromThrottle = hadLiveReading ? before.throttle : throttle
         toThrottle = throttle
-        fromGain = isFirstReading ? 1 : before.gain
+        fromGain = previousInput == nil ? 1 : before.gain
         toGain = 1
         previousLiveRPM = rpm
         previousLiveTime = input.sampleTime
