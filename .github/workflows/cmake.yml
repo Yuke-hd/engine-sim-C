@@ -1,9 +1,7 @@
 name: CMake
+# The Windows desktop app is not maintained in this fork, so this build runs only on demand.
 on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+  workflow_dispatch:
 
 
 env:
