@@ -30,7 +30,7 @@ jobs:
     - name: Checkout submodules
       run: git submodule update --init --recursive
     
-# Retrieve the cache, uses cache@v2
+# Retrieve the cached Boost installation.
     - name: Cache boost
       uses: actions/cache@v6
       id: cache-boost
@@ -39,6 +39,10 @@ jobs:
         path: ${{env.BOOST_PATH}}
         # Use the version as the key to only cache the correct version
         key: boost-${{env.BOOST_VERSION}}
+
+    - name: Prepare Boost install directory
+      if: steps.cache-boost.outputs.cache-hit != 'true'
+      run: New-Item -ItemType Directory -Force -Path $env:BOOST_PATH
 
     # Actual install step (only runs if the cache is empty)
     - name: Install boost
