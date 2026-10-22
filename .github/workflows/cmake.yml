@@ -60,12 +60,20 @@ jobs:
         # Set the toolset
         toolset: msvc
 
+    - name: Install SDL2
+      # delta-studio requires SDL2 and SDL2_image; use the runner's preinstalled vcpkg.
+      run: vcpkg install sdl2 sdl2-image --triplet x64-windows
+
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      run: |
+        $env:SDL2DIR = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows"
+        cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
       env:
         BOOST_ROOT: ${{env.BOOST_PATH}}boost
+        # Set via the environment: PowerShell splits an unquoted -D...=3.5 argument at the dot.
+        CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
 
     - name: Build
