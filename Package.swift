@@ -76,7 +76,8 @@ let package = Package(
                 .headerSearchPath("swift"),
                 .define("__forceinline", to: "inline"),
                 // Upstream templates rely on MSVC-style delayed template parsing.
-                .unsafeFlags(["-fdelayed-template-parsing"]),
+                // The solver submodule uses memset/memcpy without declaring them.
+                .unsafeFlags(["-include", "string.h", "-fdelayed-template-parsing"]),
             ],
             linkerSettings: [.linkedLibrary("c++")]
         ),
