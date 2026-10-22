@@ -1,5 +1,7 @@
 #include "../include/simulator.h"
 
+#include <cmath>
+
 namespace {
 // The constraint solver API borrows this pointer; the simulator owns it.
 class OwnedOptimizedSystem final : public atg_scs::OptimizedNsvRigidBodySystem {

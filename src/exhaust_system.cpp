@@ -2,6 +2,8 @@
 
 #include "../include/units.h"
 
+#include <cmath>
+
 ExhaustSystem::ExhaustSystem() {
     m_primaryFlowRate = 0;
     m_outletFlowRate = 0;
