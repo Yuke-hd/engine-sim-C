@@ -18,7 +18,7 @@ ConnectingRod::ConnectingRod() {
 }
 
 ConnectingRod::~ConnectingRod() {
-    /* void */
+    delete[] m_rodJournalAngles;
 }
 
 void ConnectingRod::initialize(const Parameters &params) {

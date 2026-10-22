@@ -1,5 +1,13 @@
 #include "../include/simulator.h"
 
+namespace {
+// The constraint solver API borrows this pointer; the simulator owns it.
+class OwnedOptimizedSystem final : public atg_scs::OptimizedNsvRigidBodySystem {
+public:
+    ~OwnedOptimizedSystem() override { delete m_sleSolver; }
+};
+}
+
 Simulator::Simulator() {
     m_engine = nullptr;
     m_vehicle = nullptr;
@@ -28,7 +36,7 @@ Simulator::~Simulator() {
 void Simulator::initialize(const Parameters &params) {
     if (params.systemType == SystemType::NsvOptimized) {
         atg_scs::OptimizedNsvRigidBodySystem *system =
-            new atg_scs::OptimizedNsvRigidBodySystem;
+            new OwnedOptimizedSystem;
         system->initialize(
             new atg_scs::GaussSeidelSleSolver);
         m_system = system;

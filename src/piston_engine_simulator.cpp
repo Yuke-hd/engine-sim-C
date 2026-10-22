@@ -353,6 +353,8 @@ void PistonEngineSimulator::destroy() {
     if (m_exhaustFlowStagingBuffer != nullptr) delete[] m_exhaustFlowStagingBuffer;
     if (m_system != nullptr) delete m_system;
     if (m_delayFilters != nullptr) delete[] m_delayFilters;
+    delete[] m_crankshaftLinks;
+    m_crankshaftLinks = nullptr;
 
     m_crankConstraints = nullptr;
     m_cylinderWallConstraints = nullptr;

@@ -108,6 +108,8 @@ void Engine::destroy() {
         m_intakes[i].destroy();
     }
 
+    for (int i = 0; i < m_cylinderBankCount; ++i) m_heads[i].destroy();
+
     m_ignitionModule.destroy();
 
     if (m_throttle != nullptr) delete m_throttle;
@@ -285,6 +287,8 @@ void Engine::calculateDisplacement() {
         }
     }
 
+    delete[] min_s;
+    delete[] max_s;
     m_displacement = displacement;
 }
 

@@ -11,6 +11,7 @@
 #include "piston_engine_simulator.h"
 #include "synthesizer.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -18,6 +19,7 @@
 #include <thread>
 
 struct EngineSimCore {
+    bool ignition = false;
     LsV8 ls;
     PistonEngineSimulator *simulator = nullptr;
 };
@@ -32,6 +34,12 @@ void waitForRender(Synthesizer &synth) {
     std::unique_lock<std::mutex> lock(synth.m_lock0);
     synth.m_cv0.wait_for(lock, kFrameTimeout, [&synth] { return synth.m_processed; });
 }
+}
+
+EngineSimCore *engine_sim_create(EngineSimProfile profile, int simulationFrequency) {
+    if (profile != ENGINE_SIM_PROFILE_LS_V8) return nullptr;
+    try { return engine_sim_create_ls_v8(simulationFrequency); }
+    catch (...) { return nullptr; }
 }
 
 EngineSimCore *engine_sim_create_ls_v8(int simulationFrequency) {
@@ -78,11 +86,27 @@ void engine_sim_destroy(EngineSimCore *core) {
 }
 
 void engine_sim_hold_rpm(EngineSimCore *core, double rpm) {
-    core->ls.engine->getIgnitionModule()->m_enabled = true;
-    core->ls.engine->setSpeedControl(0.5);
+    engine_sim_set_ignition(core, true);
+    engine_sim_set_throttle(core, 0.5);
+    engine_sim_set_target_rpm(core, rpm);
+}
+
+void engine_sim_set_target_rpm(EngineSimCore *core, double rpm) {
+    if (!core || !std::isfinite(rpm)) return;
+    rpm = std::clamp(rpm, 0.0, 8000.0);
     core->simulator->m_dyno.m_enabled = true;
     core->simulator->m_dyno.m_hold = true;
     core->simulator->m_dyno.m_rotationSpeed = units::rpm(rpm);
+}
+
+void engine_sim_set_throttle(EngineSimCore *core, double throttle) {
+    if (core && std::isfinite(throttle)) core->ls.engine->setSpeedControl(std::clamp(throttle, 0.0, 1.0));
+}
+
+void engine_sim_set_ignition(EngineSimCore *core, int enabled) {
+    if (!core) return;
+    core->ignition = enabled != 0;
+    core->ls.engine->getIgnitionModule()->m_enabled = core->ignition;
 }
 
 // The leveler adapts its gain slowly (and boosts quiet passages up to 1.9x), so a
@@ -101,6 +125,7 @@ static void softLimit(int16_t *samples, int count) {
 }
 
 static int renderLoop(EngineSimCore *core, int16_t *out, int sampleCount, bool synchronous) {
+    if (!core || !out || sampleCount <= 0) return 0;
     PistonEngineSimulator *sim = core->simulator;
     int written = 0;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30 + sampleCount / ENGINE_SIM_SAMPLE_RATE * 10);
@@ -127,6 +152,7 @@ static int renderLoop(EngineSimCore *core, int16_t *out, int sampleCount, bool s
         if (got == 0) std::this_thread::sleep_for(std::chrono::microseconds(500));
     }
 
+    if (!core->ignition) std::fill(out, out + written, 0);
     return written;
 }
 
@@ -139,9 +165,9 @@ int engine_sim_render_synchronous(EngineSimCore *core, int16_t *out, int sampleC
 }
 
 double engine_sim_rpm(const EngineSimCore *core) {
-    return core->ls.engine->getRpm();
+    return core ? core->ls.engine->getRpm() : 0;
 }
 
 int engine_sim_simulation_frequency(const EngineSimCore *core) {
-    return core->simulator->getSimulationFrequency();
+    return core ? core->simulator->getSimulationFrequency() : 0;
 }

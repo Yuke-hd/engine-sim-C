@@ -8,6 +8,12 @@ extern "C" {
 #endif
 
 typedef struct EngineSimCore EngineSimCore;
+typedef enum { ENGINE_SIM_PROFILE_LS_V8 = 0 } EngineSimProfile;
+
+// All operations on a handle must be serialized on a producer thread. Render
+// performs physics and may block: never call it in a real-time audio callback.
+// Instances start with ignition off. Unknown profiles return null.
+EngineSimCore *engine_sim_create(EngineSimProfile profile, int simulationFrequency);
 
 #define ENGINE_SIM_DEFAULT_FREQUENCY 10000
 #define ENGINE_SIM_SAMPLE_RATE 44100
@@ -19,6 +25,14 @@ void engine_sim_destroy(EngineSimCore *core);
 
 /// Enables ignition and the dynamometer and holds the crankshaft at `rpm`.
 void engine_sim_hold_rpm(EngineSimCore *core, double rpm);
+
+// Finite RPM is clamped to 0...8000, throttle to 0...1; nonfinite inputs
+// are ignored. Ignition off immediately mutes even previously queued audio.
+// Independent producer-thread controls; unlike hold_rpm these do not alter
+// one another. The dynamometer holds the requested telemetry RPM.
+void engine_sim_set_target_rpm(EngineSimCore *core, double rpm);
+void engine_sim_set_throttle(EngineSimCore *core, double throttle);
+void engine_sim_set_ignition(EngineSimCore *core, int enabled);
 
 /// Renders `sampleCount` mono 16-bit samples at 44.1 kHz into `out`. Physics
 /// runs on the calling thread while the synthesizer renders audio on its own

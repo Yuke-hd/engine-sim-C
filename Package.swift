@@ -15,8 +15,10 @@ let package = Package(
         .library(name: "EngineSim", targets: ["EngineSimCore"]),
         // A second product makes SwiftPM expose the `EngineSim-Package` scheme.
         .library(name: "EngineSimCore", targets: ["EngineSimCore"]),
+        .library(name: "EngineSound", targets: ["EngineSound"]),
     ],
     targets: [
+        .target(name: "EngineSound"),
         .target(
             name: "EngineSimCore",
             path: ".",
