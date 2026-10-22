@@ -72,7 +72,14 @@ EngineSimCore *engine_sim_create_ls_v8(int simulationFrequency) {
         }
     }
 
-    sim->startAudioRenderingThread();
+    // The simulator is fully initialized here. If the OS cannot start the
+    // synthesizer thread, release its buffers and engine before the C factory
+    // translates the startup exception into a null handle.
+    try { sim->startAudioRenderingThread(); }
+    catch (...) {
+        engine_sim_destroy(core);
+        throw;
+    }
     return core;
 }
 

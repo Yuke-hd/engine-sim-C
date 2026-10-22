@@ -51,3 +51,10 @@ local firing-order frequency within 3%, separating it from adjacent half-orders,
 and separately verifies actual crank RPM within 2%. It does not claim that the
 firing order is the strongest sound component. This replaces the original
 loudest-firing-component requirement following the owner's listening decision.
+
+The same leak script also runs a standalone `ThreadStartFailure` probe that
+interposes `pthread_create` to return `EAGAIN`. The C factory must return null
+and release the fully initialized engine/synthesizer when thread startup throws.
+The regression originally reported 133 leaks / 1,058,960 bytes for one failed
+creation. Cleanup uses the normal destruction path; no audio thread exists to
+join on this failure path.

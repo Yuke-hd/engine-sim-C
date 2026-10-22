@@ -10,6 +10,8 @@ objects=()
 while IFS= read -r -d '' object; do objects+=("$object"); done < <(
     find "$bin_path/EngineSimCore.build" -name '*.o' -print0
 )
-clang++ -std=c++17 -I swift/include \
-    swift/Tests/BridgeLifecycle/main.cpp "${objects[@]}" -o "$probe_dir/lifecycle"
-leaks --atExit -- "$probe_dir/lifecycle"
+for probe in BridgeLifecycle ThreadStartFailure; do
+    clang++ -std=c++17 -I swift/include \
+        "swift/Tests/$probe/main.cpp" "${objects[@]}" -o "$probe_dir/$probe"
+    leaks --atExit -- "$probe_dir/$probe"
+done
