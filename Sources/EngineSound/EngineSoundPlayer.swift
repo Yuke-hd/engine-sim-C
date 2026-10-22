@@ -16,26 +16,38 @@ public enum EngineSoundPlayerError: Error {
 /// AVAudioSession belongs to the process, so active players share one activation.
 private enum AudioSessionCoordinator {
     private static let lock = NSLock()
-    private static var activePlayers = 0
+    private static var duckPlayers = 0
+    private static var mixPlayers = 0
 
     static func acquire(policy: AudioSessionMixPolicy) throws {
         lock.lock()
         defer { lock.unlock() }
         let session = AVAudioSession.sharedInstance()
+        let activePlayers = duckPlayers + mixPlayers
+        let effectiveDuckPlayers = duckPlayers + (policy == .duckOthers ? 1 : 0)
         try session.setCategory(.playback, mode: .default,
-                                options: policy == .duckOthers ? [.duckOthers] : [.mixWithOthers])
+                                options: effectiveDuckPlayers > 0 ? [.duckOthers] : [.mixWithOthers])
         if activePlayers == 0 { try session.setActive(true) }
-        activePlayers += 1
+        if policy == .duckOthers { duckPlayers += 1 } else { mixPlayers += 1 }
     }
 
-    static func release() {
+    static func release(policy: AudioSessionMixPolicy) {
         lock.lock()
         defer { lock.unlock() }
-        guard activePlayers > 0 else { return }
-        activePlayers -= 1
-        if activePlayers == 0 {
+        if policy == .duckOthers {
+            guard duckPlayers > 0 else { return }
+            duckPlayers -= 1
+        } else {
+            guard mixPlayers > 0 else { return }
+            mixPlayers -= 1
+        }
+        let session = AVAudioSession.sharedInstance()
+        if duckPlayers + mixPlayers == 0 {
             // A later first acquire reasserts activation if deactivation fails.
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        } else {
+            try? session.setCategory(.playback, mode: .default,
+                                     options: duckPlayers > 0 ? [.duckOthers] : [.mixWithOthers])
         }
     }
 }
@@ -50,7 +62,7 @@ public final class EngineSoundPlayer {
     private var lastRing: RingBuffer?
     private let stateLock = NSRecursiveLock()
     #if os(iOS)
-    private var sessionActive = false
+    private var sessionPolicy: AudioSessionMixPolicy?
     #endif
 
     public init() {}
@@ -91,7 +103,7 @@ public final class EngineSoundPlayer {
 
         #if os(iOS)
         try AudioSessionCoordinator.acquire(policy: policy)
-        sessionActive = true
+        sessionPolicy = policy
         #endif
 
         worker.start()
@@ -142,9 +154,9 @@ public final class EngineSoundPlayer {
 
     #if os(iOS)
     private func deactivateSessionIfNeeded() {
-        guard sessionActive else { return }
-        sessionActive = false
-        AudioSessionCoordinator.release()
+        guard let policy = sessionPolicy else { return }
+        sessionPolicy = nil
+        AudioSessionCoordinator.release(policy: policy)
     }
     #endif
 }

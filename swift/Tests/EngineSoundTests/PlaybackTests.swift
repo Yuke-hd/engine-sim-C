@@ -1,4 +1,7 @@
 import XCTest
+#if os(iOS)
+import AVFoundation
+#endif
 @testable import EngineSound
 
 final class PlaybackTests: XCTestCase {
@@ -37,10 +40,28 @@ final class PlaybackTests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.2)
         XCTAssertGreaterThan(first.consumedFrameCount, 2_205)
         XCTAssertGreaterThan(second.consumedFrameCount, 2_205)
-        let before = second.consumedFrameCount
         first.stop()
+        let before = second.consumedFrameCount
         Thread.sleep(forTimeInterval: 0.3)
         XCTAssertGreaterThan(second.consumedFrameCount - before, 4_410)
+        #endif
+    }
+
+    func testStoppingDuckPlayerRestoresMixPolicy() throws {
+        #if !os(iOS)
+        throw XCTSkip("Requires an audio-enabled iOS Simulator")
+        #else
+        let mixPlayer = EngineSoundPlayer()
+        let duckPlayer = EngineSoundPlayer()
+        let session = AVAudioSession.sharedInstance()
+        try mixPlayer.start(ToneSource(frequency: 110), policy: .mixWithOthers)
+        defer { mixPlayer.stop() }
+        try duckPlayer.start(ToneSource(frequency: 130), policy: .duckOthers)
+        defer { duckPlayer.stop() }
+        XCTAssertTrue(session.categoryOptions.contains(.duckOthers))
+        duckPlayer.stop()
+        XCTAssertTrue(session.categoryOptions.contains(.mixWithOthers))
+        XCTAssertFalse(session.categoryOptions.contains(.duckOthers))
         #endif
     }
 
