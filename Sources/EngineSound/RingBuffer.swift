@@ -15,6 +15,7 @@ public final class RingBuffer {
 
     public var available: Int { Int(engine_sound_ring_available(storage)) }
     public var underrunCount: Int { Int(engine_sound_ring_underruns(storage)) }
+    public var consumedFrameCount: Int { Int(engine_sound_ring_consumed(storage)) }
 
     @discardableResult
     public func write(_ samples: UnsafeBufferPointer<Int16>) -> Int {

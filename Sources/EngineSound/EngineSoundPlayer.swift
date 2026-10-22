@@ -20,6 +20,9 @@ public final class EngineSoundPlayer {
     private var worker: PlaybackWorker?
     private var lastRing: RingBuffer?
     private let stateLock = NSRecursiveLock()
+    #if os(iOS)
+    private var sessionActive = false
+    #endif
 
     public init() {}
     deinit { stop() }
@@ -30,14 +33,21 @@ public final class EngineSoundPlayer {
         return lastRing?.underrunCount ?? 0
     }
 
+    public var consumedFrameCount: Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return lastRing?.consumedFrameCount ?? 0
+    }
+
     public func start(_ source: EngineSoundSource, policy: AudioSessionMixPolicy = .duckOthers) throws {
         stateLock.lock()
         defer { stateLock.unlock() }
         stop()
-        guard source.sampleRate.isFinite, source.sampleRate > 0 else { throw EngineSoundPlayerError.invalidSampleRate }
+        guard source.sampleRate.isFinite, (8_000...192_000).contains(source.sampleRate),
+              let format = AVAudioFormat(standardFormatWithSampleRate: source.sampleRate, channels: 2)
+        else { throw EngineSoundPlayerError.invalidSampleRate }
         guard let ring = RingBuffer(capacity: 8192) else { throw EngineSoundPlayerError.allocationFailed }
         let worker = PlaybackWorker(source: source, ring: ring)
-        let format = AVAudioFormat(standardFormatWithSampleRate: source.sampleRate, channels: 2)!
         let node = AVAudioSourceNode(format: format) { _, _, frameCount, buffers in
             let channels = UnsafeMutableAudioBufferListPointer(buffers)
             for frame in 0..<Int(frameCount) {
@@ -54,6 +64,7 @@ public final class EngineSoundPlayer {
         try session.setCategory(.playback, mode: .default,
                                 options: policy == .duckOthers ? [.duckOthers] : [.mixWithOthers])
         try session.setActive(true)
+        sessionActive = true
         #endif
 
         worker.start()
@@ -67,7 +78,7 @@ public final class EngineSoundPlayer {
             engine.detach(node)
             worker.abort()
             #if os(iOS)
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            deactivateSessionIfNeeded()
             #endif
             throw error
         }
@@ -98,9 +109,21 @@ public final class EngineSoundPlayer {
         engine.stop()
         if let node { engine.detach(node) }
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        deactivateSessionIfNeeded()
         #endif
     }
+
+    #if os(iOS)
+    private func deactivateSessionIfNeeded() {
+        guard sessionActive else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            sessionActive = false
+        } catch {
+            // Keep ownership so a later stop can retry deactivation.
+        }
+    }
+    #endif
 }
 
 private final class PlaybackWorker {

@@ -13,5 +13,6 @@ size_t engine_sound_ring_read(EngineSoundRing *ring, int16_t *samples, size_t co
 size_t engine_sound_ring_available(const EngineSoundRing *ring);
 size_t engine_sound_ring_capacity(const EngineSoundRing *ring);
 size_t engine_sound_ring_underruns(const EngineSoundRing *ring);
+size_t engine_sound_ring_consumed(const EngineSoundRing *ring);
 
 #endif

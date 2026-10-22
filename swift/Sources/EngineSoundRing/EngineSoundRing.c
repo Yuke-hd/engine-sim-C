@@ -58,3 +58,6 @@ size_t engine_sound_ring_capacity(const EngineSoundRing *ring) { return ring->ca
 size_t engine_sound_ring_underruns(const EngineSoundRing *ring) {
     return atomic_load_explicit(&ring->underruns, memory_order_relaxed);
 }
+size_t engine_sound_ring_consumed(const EngineSoundRing *ring) {
+    return atomic_load_explicit(&ring->readIndex, memory_order_acquire);
+}
