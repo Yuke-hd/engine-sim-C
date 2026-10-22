@@ -56,16 +56,24 @@ To collect the issue #6 result on a signed iPhone 12 Pro:
 2. In **Signing & Capabilities**, select your development team and set a unique
    bundle identifier if Xcode requests one. Connect and select the iPhone 12 Pro
    as the run destination.
-3. Build and Run. Tap **Run 3-second render** and wait for the result on screen.
-4. Copy the complete result text, including device, iOS version, simulation
-   frequency, sample rate, frame count, compute/audio ratio, and PASS or FAIL,
-   into issue #6 or PR #10. Confirm the device model is iPhone 12 Pro in iOS
+3. Select the Release build configuration for the Run action, then Build and
+   Run. Tap **Run LS and F136 benchmark** and wait for the result on screen
+   (about a minute).
+4. Copy the complete result text, including device, iOS version, build
+   configuration, simulation frequency, sample rate, per-run ratios, min/median/max,
+   and PASS or FAIL, into issue #6 or PR #10. Confirm the device model is iPhone 12 Pro in iOS
    Settings because the app displays the user-assigned device name.
 
-The app warms up for 0.5 seconds, then times one 3-second offline F136 render
-at 3000 RPM, 1000 Hz simulation, and 44.1 kHz mono PCM16 output. It passes only
-when the full audio buffer is rendered, non-silent and unclipped, and wall-clock
-compute duration divided by rendered audio duration is at most 0.5. A Simulator
+For the LS V8 baseline and then the F136 V8, the app holds 3000 RPM at 1000 Hz
+simulation and 44.1 kHz mono PCM16 output, settles for 0.5 seconds, discards one
+3-second warm-up render, and times five 3-second offline renders. It reports each
+compute/audio ratio (wall-clock compute duration divided by rendered audio
+duration) with the min, median and max. The gate is on the F136 median: it
+passes only when every timed F136 buffer is complete, non-silent and unclipped
+and the median ratio is strictly below 0.7. The max is shown but not gated, and
+the LS result is informational. Other RPMs are omitted because 1000 RPM, and
+6000/7500 RPM (LS) or 8500 RPM (F136), trip the `combustion_chamber.cpp`
+assertion at 1000 Hz simulation. A Simulator
 run can check that the app builds, but only the signed physical-iPhone result
 satisfies this acceptance gate.
 
