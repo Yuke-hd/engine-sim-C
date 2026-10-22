@@ -2,6 +2,8 @@
 
 #include "ls_v8_builder.h"
 #include "ls_v8_impulse_response.h"
+#include "f136_v8_builder.h"
+#include "f136_v8_impulse_response.h"
 #include "wav_reader.h"
 
 #include "engine.h"
@@ -20,8 +22,11 @@
 
 struct EngineSimCore {
     bool ignition = false;
+    EngineSimProfile profile = ENGINE_SIM_PROFILE_LS_V8;
     LsV8 ls;
+    F136V8 f136;
     PistonEngineSimulator *simulator = nullptr;
+    Engine *engine() const { return profile == ENGINE_SIM_PROFILE_LS_V8 ? ls.engine : f136.engine; }
 };
 
 namespace {
@@ -37,18 +42,17 @@ void waitForRender(Synthesizer &synth) {
 }
 
 EngineSimCore *engine_sim_create(EngineSimProfile profile, int simulationFrequency) {
-    if (profile != ENGINE_SIM_PROFILE_LS_V8) return nullptr;
-    try { return engine_sim_create_ls_v8(simulationFrequency); }
-    catch (...) { return nullptr; }
-}
-
-EngineSimCore *engine_sim_create_ls_v8(int simulationFrequency) {
+    if (profile != ENGINE_SIM_PROFILE_LS_V8 && profile != ENGINE_SIM_PROFILE_F136_V8) return nullptr;
+    try {
     EngineSimCore *core = new EngineSimCore;
-    buildLsV8(&core->ls);
+    core->profile = profile;
+    if (profile == ENGINE_SIM_PROFILE_LS_V8) buildLsV8(&core->ls);
+    else buildF136V8(&core->f136);
 
-    Engine *engine = core->ls.engine;
+    Engine *engine = core->engine();
     core->simulator = static_cast<PistonEngineSimulator *>(
-        engine->createSimulator(core->ls.vehicle, core->ls.transmission));
+        engine->createSimulator(profile == ENGINE_SIM_PROFILE_LS_V8 ? core->ls.vehicle : core->f136.vehicle,
+                                profile == ENGINE_SIM_PROFILE_LS_V8 ? core->ls.transmission : core->f136.transmission));
     PistonEngineSimulator *sim = core->simulator;
 
     sim->setSimulationFrequency(
@@ -64,7 +68,9 @@ EngineSimCore *engine_sim_create_ls_v8(int simulationFrequency) {
     sim->synthesizer().setAudioParameters(audio);
 
     std::vector<int16_t> samples;
-    if (readWavPcm16Mono(kLsV8ImpulseResponseWav, kLsV8ImpulseResponseWavSize, &samples)) {
+    const uint8_t *irBytes = profile == ENGINE_SIM_PROFILE_LS_V8 ? kLsV8ImpulseResponseWav : kF136V8ImpulseResponseWav;
+    const size_t irSize = profile == ENGINE_SIM_PROFILE_LS_V8 ? kLsV8ImpulseResponseWavSize : kF136V8ImpulseResponseWavSize;
+    if (readWavPcm16Mono(irBytes, irSize, &samples)) {
         for (int i = 0; i < engine->getExhaustSystemCount(); ++i) {
             ImpulseResponse *response = engine->getExhaustSystem(i)->getImpulseResponse();
             sim->synthesizer().initializeImpulseResponse(
@@ -81,15 +87,39 @@ EngineSimCore *engine_sim_create_ls_v8(int simulationFrequency) {
         throw;
     }
     return core;
+    }
+    catch (...) { return nullptr; }
+}
+
+EngineSimCore *engine_sim_create_ls_v8(int simulationFrequency) {
+    return engine_sim_create(ENGINE_SIM_PROFILE_LS_V8, simulationFrequency);
 }
 
 void engine_sim_destroy(EngineSimCore *core) {
     if (core == nullptr) return;
 
-    core->simulator->releaseSimulation();
-    delete core->simulator;
-    destroyLsV8(&core->ls);
+    if (core->simulator) {
+        core->simulator->releaseSimulation();
+        delete core->simulator;
+    }
+    if (core->profile == ENGINE_SIM_PROFILE_LS_V8) destroyLsV8(&core->ls);
+    else destroyF136V8(&core->f136);
     delete core;
+}
+
+EngineSimProfile engine_sim_profile(const EngineSimCore *core) {
+    return core ? core->profile : static_cast<EngineSimProfile>(-1);
+}
+
+double engine_sim_profile_min_rpm(EngineSimProfile profile) {
+    (void)profile;
+    return 0;
+}
+
+double engine_sim_profile_max_rpm(EngineSimProfile profile) {
+    if (profile == ENGINE_SIM_PROFILE_LS_V8) return 8000;
+    if (profile == ENGINE_SIM_PROFILE_F136_V8) return 9000;
+    return 0;
 }
 
 void engine_sim_hold_rpm(EngineSimCore *core, double rpm) {
@@ -100,20 +130,20 @@ void engine_sim_hold_rpm(EngineSimCore *core, double rpm) {
 
 void engine_sim_set_target_rpm(EngineSimCore *core, double rpm) {
     if (!core || !std::isfinite(rpm)) return;
-    rpm = std::clamp(rpm, 0.0, 8000.0);
+    rpm = std::clamp(rpm, engine_sim_profile_min_rpm(core->profile), engine_sim_profile_max_rpm(core->profile));
     core->simulator->m_dyno.m_enabled = true;
     core->simulator->m_dyno.m_hold = true;
     core->simulator->m_dyno.m_rotationSpeed = units::rpm(rpm);
 }
 
 void engine_sim_set_throttle(EngineSimCore *core, double throttle) {
-    if (core && std::isfinite(throttle)) core->ls.engine->setSpeedControl(std::clamp(throttle, 0.0, 1.0));
+    if (core && std::isfinite(throttle)) core->engine()->setSpeedControl(std::clamp(throttle, 0.0, 1.0));
 }
 
 void engine_sim_set_ignition(EngineSimCore *core, int enabled) {
     if (!core) return;
     core->ignition = enabled != 0;
-    core->ls.engine->getIgnitionModule()->m_enabled = core->ignition;
+    core->engine()->getIgnitionModule()->m_enabled = core->ignition;
 }
 
 // The leveler adapts its gain slowly (and boosts quiet passages up to 1.9x), so a
@@ -172,7 +202,7 @@ int engine_sim_render_synchronous(EngineSimCore *core, int16_t *out, int sampleC
 }
 
 double engine_sim_rpm(const EngineSimCore *core) {
-    return core ? core->ls.engine->getRpm() : 0;
+    return core ? core->engine()->getRpm() : 0;
 }
 
 int engine_sim_simulation_frequency(const EngineSimCore *core) {
