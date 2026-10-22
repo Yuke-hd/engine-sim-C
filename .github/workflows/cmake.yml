@@ -32,7 +32,7 @@ jobs:
     
 # Retrieve the cache, uses cache@v2
     - name: Cache boost
-      uses: actions/cache@v2
+      uses: actions/cache@v6
       id: cache-boost
       with:
         # Set the path to cache
