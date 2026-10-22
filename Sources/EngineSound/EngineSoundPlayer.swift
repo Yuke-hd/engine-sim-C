@@ -12,6 +12,35 @@ public enum EngineSoundPlayerError: Error {
     case allocationFailed
 }
 
+#if os(iOS)
+/// AVAudioSession belongs to the process, so active players share one activation.
+private enum AudioSessionCoordinator {
+    private static let lock = NSLock()
+    private static var activePlayers = 0
+
+    static func acquire(policy: AudioSessionMixPolicy) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .default,
+                                options: policy == .duckOthers ? [.duckOthers] : [.mixWithOthers])
+        if activePlayers == 0 { try session.setActive(true) }
+        activePlayers += 1
+    }
+
+    static func release() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activePlayers > 0 else { return }
+        activePlayers -= 1
+        if activePlayers == 0 {
+            // A later first acquire reasserts activation if deactivation fails.
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
+}
+#endif
+
 /// Playback for a mono PCM16 source. Source controls must be serialized with
 /// `render(into:)` by the caller; a host can instead replace the whole source.
 public final class EngineSoundPlayer {
@@ -43,11 +72,12 @@ public final class EngineSoundPlayer {
         stateLock.lock()
         defer { stateLock.unlock() }
         stop()
-        guard source.sampleRate.isFinite, (8_000...192_000).contains(source.sampleRate),
-              let format = AVAudioFormat(standardFormatWithSampleRate: source.sampleRate, channels: 2)
+        let sampleRate = source.sampleRate
+        guard sampleRate.isFinite, (8_000...192_000).contains(sampleRate),
+              let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)
         else { throw EngineSoundPlayerError.invalidSampleRate }
         guard let ring = RingBuffer(capacity: 8192) else { throw EngineSoundPlayerError.allocationFailed }
-        let worker = PlaybackWorker(source: source, ring: ring)
+        let worker = PlaybackWorker(source: source, sampleRate: sampleRate, ring: ring)
         let node = AVAudioSourceNode(format: format) { _, _, frameCount, buffers in
             let channels = UnsafeMutableAudioBufferListPointer(buffers)
             for frame in 0..<Int(frameCount) {
@@ -60,10 +90,7 @@ public final class EngineSoundPlayer {
         }
 
         #if os(iOS)
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default,
-                                options: policy == .duckOthers ? [.duckOthers] : [.mixWithOthers])
-        try session.setActive(true)
+        try AudioSessionCoordinator.acquire(policy: policy)
         sessionActive = true
         #endif
 
@@ -116,12 +143,8 @@ public final class EngineSoundPlayer {
     #if os(iOS)
     private func deactivateSessionIfNeeded() {
         guard sessionActive else { return }
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            sessionActive = false
-        } catch {
-            // Keep ownership so a later stop can retry deactivation.
-        }
+        sessionActive = false
+        AudioSessionCoordinator.release()
     }
     #endif
 }
@@ -140,11 +163,11 @@ private final class PlaybackWorker {
     private let framesPerBlock = 256
     private let fadeFrames: Int
 
-    init(source: EngineSoundSource, ring: RingBuffer) {
+    init(source: EngineSoundSource, sampleRate: Double, ring: RingBuffer) {
         self.source = source
-        self.sampleRate = source.sampleRate
+        self.sampleRate = sampleRate
         self.ring = ring
-        fadeFrames = max(1, Int(source.sampleRate * 0.02))
+        fadeFrames = max(1, Int(sampleRate * 0.02))
     }
 
     func start() {
