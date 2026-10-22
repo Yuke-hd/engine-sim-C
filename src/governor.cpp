@@ -3,6 +3,8 @@
 #include "../include/engine.h"
 #include "../include/utilities.h"
 
+#include <cmath>
+
 Governor::Governor() {
     m_minSpeed = m_maxSpeed = 0;
     m_targetSpeed = 0;
