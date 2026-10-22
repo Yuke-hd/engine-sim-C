@@ -41,13 +41,18 @@ final class ControlAPITests: XCTestCase {
     func testTargetRPMClampsToDocumentedBounds() throws {
         let core = try XCTUnwrap(engine_sim_create(ENGINE_SIM_PROFILE_LS_V8, 0))
         defer { engine_sim_destroy(core) }
-        var samples = [Int16](repeating: 0, count: 22050)
-        engine_sim_set_target_rpm(core, -100)
-        XCTAssertEqual(engine_sim_render(core, &samples, 22050), 22050)
-        XCTAssertEqual(engine_sim_rpm(core), 0, accuracy: 1)
-        engine_sim_set_target_rpm(core, 10000)
-        XCTAssertEqual(engine_sim_render(core, &samples, 22050), 22050)
-        XCTAssertEqual(engine_sim_rpm(core), 8000, accuracy: 160)
+        // Advance the same half-second at each bound in producer-sized frames.
+        // A single large offline request can hit render's wall-clock timeout on
+        // slow simulator hosts even while physics is still producing samples.
+        let frameCount: Int32 = ENGINE_SIM_SAMPLE_RATE / 60
+        var samples = [Int16](repeating: 0, count: Int(frameCount))
+        for (requested, expected) in [(-100.0, 0.0), (10000.0, 8000.0)] {
+            engine_sim_set_target_rpm(core, requested)
+            for _ in 0..<30 {
+                XCTAssertEqual(engine_sim_render(core, &samples, frameCount), frameCount)
+            }
+            XCTAssertEqual(engine_sim_rpm(core), expected, accuracy: expected == 0 ? 1 : 160)
+        }
     }
 
     func testNonpositiveRenderPreservesOutput() throws {
