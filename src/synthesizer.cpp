@@ -125,6 +125,7 @@ void Synthesizer::destroy() {
 
     for (int i = 0; i < m_inputChannelCount; ++i) {
         m_inputChannels[i].data.destroy();
+        delete[] m_inputChannels[i].transferBuffer;
         m_filters[i].convolution.destroy();
     }
 
