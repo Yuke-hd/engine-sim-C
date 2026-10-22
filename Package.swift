@@ -93,6 +93,7 @@ let package = Package(
             path: "swift/Tests/EngineSimCoreTests"
         ),
         .testTarget(name: "EngineSoundTests", dependencies: ["EngineSound"], path: "swift/Tests/EngineSoundTests"),
+        .testTarget(name: "EngineSoundProfileTests", dependencies: ["EngineSound", "EngineSimCore"], path: "swift/Tests/EngineSoundProfileTests"),
     ],
     cxxLanguageStandard: .cxx17
 )

@@ -107,23 +107,4 @@ final class F136V8Tests: XCTestCase {
             XCTAssertEqual(firingFrequency, expected, accuracy: expected * 0.03)
         }
     }
-
-    func testIPhoneRenderBenchmark() throws {
-        #if os(iOS) && !targetEnvironment(simulator)
-        let core = try XCTUnwrap(engine_sim_create(ENGINE_SIM_PROFILE_F136_V8, 1000))
-        defer { engine_sim_destroy(core) }
-        engine_sim_hold_rpm(core, 3000)
-        let seconds = 3
-        var samples = [Int16](repeating: 0, count: seconds * 44100)
-        let started = DispatchTime.now().uptimeNanoseconds
-        XCTAssertEqual(engine_sim_render(core, &samples, Int32(samples.count)), Int32(samples.count))
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e9
-        XCTAssertTrue(samples.contains { $0 != 0 })
-        XCTAssertLessThan(samples.map { abs(Int32($0)) }.max() ?? 0, Int32(Int16.max))
-        print("F136 iPhone benchmark: 1000 Hz physics, 44.1 kHz audio, \(elapsed / Double(seconds)) compute/audio ratio")
-        XCTAssertLessThanOrEqual(elapsed / Double(seconds), 0.5)
-        #else
-        throw XCTSkip("iPhone hardware required for the 2x real-time acceptance criterion")
-        #endif
-    }
 }

@@ -1,0 +1,23 @@
+name: F136DeviceBenchmark
+options:
+  bundleIdPrefix: com.yukehd.enginesim
+packages:
+  EngineSim:
+    path: ../../..
+targets:
+  F136DeviceBenchmark:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - App
+    dependencies:
+      - package: EngineSim
+        product: EngineSimCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yukehd.enginesim.f136benchmark
+        SWIFT_VERSION: 5.0
+        TARGETED_DEVICE_FAMILY: 1
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic

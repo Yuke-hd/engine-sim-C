@@ -32,7 +32,35 @@ handle before creating a replacement profile. Both profile ports and embedded
 impulse responses retain the upstream MIT notice in `LICENSE`.
 
 `F136V8Tests` checks creation, limits, LS/F136 replacement and cleanup, and
-offline output at 3000 and 6000 RPM.
+offline output at 3000 and 6000 RPM. `EngineSoundProfileTests` renders real LS
+and F136 audio, then switches a live `EngineSoundPlayer` between sources that
+retain their respective cores. On iOS Simulator it checks audio consumption,
+underruns, non-silent sources, and release of the old core after the fade.
+Physical render throughput is measured by the device benchmark below.
+
+## Physical iPhone F136 benchmark
+
+The benchmark is an iOS host app in
+`swift/Benchmarks/F136DeviceBenchmark/F136DeviceBenchmark.xcodeproj`. A SwiftPM
+XCTest bundle cannot run directly on a physical iPhone without an app host.
+To collect the issue #6 result on a signed iPhone 12 Pro:
+
+1. Open the project in Xcode and select the `F136DeviceBenchmark` scheme.
+2. In **Signing & Capabilities**, select your development team and set a unique
+   bundle identifier if Xcode requests one. Connect and select the iPhone 12 Pro
+   as the run destination.
+3. Build and Run. Tap **Run 3-second render** and wait for the result on screen.
+4. Copy the complete result text, including device, iOS version, simulation
+   frequency, sample rate, frame count, compute/audio ratio, and PASS or FAIL,
+   into issue #6 or PR #10. Confirm the device model is iPhone 12 Pro in iOS
+   Settings because the app displays the user-assigned device name.
+
+The app warms up for 0.5 seconds, then times one 3-second offline F136 render
+at 3000 RPM, 1000 Hz simulation, and 44.1 kHz mono PCM16 output. It passes only
+when the full audio buffer is rendered, non-silent and unclipped, and wall-clock
+compute duration divided by rendered audio duration is at most 0.5. A Simulator
+run can check that the app builds, but only the signed physical-iPhone result
+satisfies this acceptance gate.
 
 Changes to upstream files, needed so clang builds them:
 
