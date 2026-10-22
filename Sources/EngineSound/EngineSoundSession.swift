@@ -44,7 +44,20 @@ import AVFoundation
 
 /// iOS notification adapter. Hosts still decide when playback is requested.
 public final class IOSAudioSession: EngineSoundSession {
-    public var onEvent: ((EngineSoundSessionEvent) -> Void)?
+    private let eventLock = NSLock()
+    private var eventHandler: ((EngineSoundSessionEvent) -> Void)?
+    public var onEvent: ((EngineSoundSessionEvent) -> Void)? {
+        get {
+            eventLock.lock()
+            defer { eventLock.unlock() }
+            return eventHandler
+        }
+        set {
+            eventLock.lock()
+            eventHandler = newValue
+            eventLock.unlock()
+        }
+    }
     public var isOutputAvailable: Bool { !AVAudioSession.sharedInstance().currentRoute.outputs.isEmpty }
     public var thermalState: EngineSoundThermalState { Self.mapThermal(ProcessInfo.processInfo.thermalState) }
     private var observers: [NSObjectProtocol] = []

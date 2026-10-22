@@ -32,6 +32,9 @@ begin and route changes stop the engine and join its producer before recovery;
 an interruption end resumes only when the system permits it, a request remains,
 and an output is available. A route change reconfigures playback even when the
 new route is available. User stop during interruption prevents a later resume.
+Notification handling queues teardown off the main thread. An automatic restart
+failure is exposed through `lastPlaybackFailure` and `onPlaybackFailure`; the
+callback runs on the main queue, and the next eligible event can retry.
 
 Thermal `.serious` recommends a simulation frequency scale of 0.5 through
 `EngineSoundThermalControllable`, called on the producer thread. `.critical`

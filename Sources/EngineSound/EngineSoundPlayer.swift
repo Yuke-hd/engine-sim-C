@@ -60,7 +60,8 @@ public final class EngineSoundPlayer {
     private var node: AVAudioSourceNode?
     private var worker: PlaybackWorker?
     private var lastRing: RingBuffer?
-    private let stateLock = NSRecursiveLock()
+    private let controlQueue = DispatchQueue(label: "EngineSound player control")
+    private let controlQueueKey = DispatchSpecificKey<Bool>()
     private let session: EngineSoundSession
     private var sessionPolicy: AudioSessionMixPolicy?
     private var requestedSource: EngineSoundSource?
@@ -70,7 +71,8 @@ public final class EngineSoundPlayer {
     private var resumeAllowed = true
     private var outputAvailable: Bool
     private var thermalState: EngineSoundThermalState
-    private var startingPlayback = false
+    private var playbackFailure: Error?
+    private var failureHandler: ((Error) -> Void)?
 
     public init(session: EngineSoundSession? = nil) {
         #if os(iOS)
@@ -80,36 +82,53 @@ public final class EngineSoundPlayer {
         #endif
         outputAvailable = self.session.isOutputAvailable
         thermalState = self.session.thermalState
-        self.session.onEvent = { [weak self] event in self?.handle(event) }
+        controlQueue.setSpecific(key: controlQueueKey, value: true)
+        self.session.onEvent = { [weak self] event in
+            self?.controlQueue.async { [weak self] in self?.handle(event) }
+        }
     }
     deinit {
-        stop()
         session.onEvent = nil
+        withControl {
+            requestedSource = nil
+            stopPlayback(immediate: true)
+        }
+    }
+
+    private func withControl<T>(_ body: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: controlQueueKey) == true { return try body() }
+        return try controlQueue.sync(execute: body)
     }
 
     public var isPlaying: Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return worker != nil
+        withControl { worker != nil }
     }
 
     public var underrunCount: Int {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return lastRing?.underrunCount ?? 0
+        withControl { lastRing?.underrunCount ?? 0 }
     }
 
     public var consumedFrameCount: Int {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return lastRing?.consumedFrameCount ?? 0
+        withControl { lastRing?.consumedFrameCount ?? 0 }
+    }
+
+    /// Set after an automatic resume fails. A later eligible event retries playback.
+    public var lastPlaybackFailure: Error? { withControl { playbackFailure } }
+
+    /// Called on the main queue when automatic resume fails.
+    public var onPlaybackFailure: ((Error) -> Void)? {
+        get { withControl { failureHandler } }
+        set { withControl { failureHandler = newValue } }
     }
 
     public func start(_ source: EngineSoundSource, policy: AudioSessionMixPolicy = .duckOthers) throws {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        stop()
         let sampleRate = source.sampleRate
+        try withControl { try requestStart(source, sampleRate: sampleRate, policy: policy) }
+    }
+
+    private func requestStart(_ source: EngineSoundSource, sampleRate: Double, policy: AudioSessionMixPolicy) throws {
+        requestedSource = nil
+        stopPlayback(immediate: false)
         guard sampleRate.isFinite, (8_000...192_000).contains(sampleRate),
               AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2) != nil
         else { throw EngineSoundPlayerError.invalidSampleRate }
@@ -117,10 +136,10 @@ public final class EngineSoundPlayer {
         requestedSampleRate = sampleRate
         requestedPolicy = policy
         resumeAllowed = true
-        applyThermalState(to: source)
+        playbackFailure = nil
         guard canPlay else { return }
         do { try startPlayback(source, sampleRate: sampleRate, policy: policy) }
-        catch { requestedSource = nil; throw error }
+        catch { requestedSource = nil; playbackFailure = error; throw error }
     }
 
     private var canPlay: Bool {
@@ -128,12 +147,11 @@ public final class EngineSoundPlayer {
     }
 
     private func startPlayback(_ source: EngineSoundSource, sampleRate: Double, policy: AudioSessionMixPolicy) throws {
-        startingPlayback = true
-        defer { startingPlayback = false }
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)
         else { throw EngineSoundPlayerError.invalidSampleRate }
         guard let ring = RingBuffer(capacity: 8192) else { throw EngineSoundPlayerError.allocationFailed }
-        let worker = PlaybackWorker(source: source, sampleRate: sampleRate, ring: ring)
+        let worker = PlaybackWorker(source: source, sampleRate: sampleRate, ring: ring,
+                                    initialFrequencyScale: thermalState.simulationFrequencyScale)
         let node = AVAudioSourceNode(format: format) { _, _, frameCount, buffers in
             let channels = UnsafeMutableAudioBufferListPointer(buffers)
             for frame in 0..<Int(frameCount) {
@@ -164,25 +182,30 @@ public final class EngineSoundPlayer {
         self.node = node
         self.worker = worker
         self.lastRing = ring
-        if !canPlay { stopPlayback(immediate: true) }
+        playbackFailure = nil
     }
 
     /// Replaces the source with a 20 ms crossfade on the producer thread.
     public func switchSource(to source: EngineSoundSource) throws {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard let worker else { return try start(source, policy: requestedPolicy) }
-        guard source.sampleRate == worker.sampleRate else { throw EngineSoundPlayerError.incompatibleSampleRate }
-        requestedSource = source
-        requestedSampleRate = source.sampleRate
-        worker.switchSource(to: source, frequencyScale: thermalState.simulationFrequencyScale)
+        let sampleRate = source.sampleRate
+        try withControl {
+            guard sampleRate.isFinite, (8_000...192_000).contains(sampleRate) else {
+                throw EngineSoundPlayerError.invalidSampleRate
+            }
+            guard let worker else { return try requestStart(source, sampleRate: sampleRate, policy: requestedPolicy) }
+            guard sampleRate == worker.sampleRate else { throw EngineSoundPlayerError.incompatibleSampleRate }
+            requestedSource = source
+            requestedSampleRate = sampleRate
+            worker.switchSource(to: source, frequencyScale: thermalState.simulationFrequencyScale)
+        }
     }
 
     public func stop() {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        requestedSource = nil
-        stopPlayback(immediate: false)
+        withControl {
+            requestedSource = nil
+            playbackFailure = nil
+            stopPlayback(immediate: false)
+        }
     }
 
     private func stopPlayback(immediate: Bool) {
@@ -205,15 +228,7 @@ public final class EngineSoundPlayer {
         session.release(policy: policy)
     }
 
-    private func applyThermalState(to source: EngineSoundSource) {
-        let scale = thermalState.simulationFrequencyScale
-        if let worker { worker.setSimulationFrequencyScale(scale) }
-        else { (source as? EngineSoundThermalControllable)?.setSimulationFrequencyScale(scale) }
-    }
-
     private func handle(_ event: EngineSoundSessionEvent) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
         switch event {
         case .interruptionBegan:
             interrupted = true
@@ -227,10 +242,16 @@ public final class EngineSoundPlayer {
         case .thermalStateChanged(let state):
             thermalState = state
             if state == .critical { stopPlayback(immediate: true) }
-            if let source = requestedSource { applyThermalState(to: source) }
+            else { worker?.setSimulationFrequencyScale(state.simulationFrequencyScale) }
         }
-        if canPlay, !startingPlayback, worker == nil, let source = requestedSource {
-            try? startPlayback(source, sampleRate: requestedSampleRate, policy: requestedPolicy)
+        if canPlay, worker == nil, let source = requestedSource {
+            do { try startPlayback(source, sampleRate: requestedSampleRate, policy: requestedPolicy) }
+            catch {
+                playbackFailure = error
+                if let failureHandler {
+                    DispatchQueue.main.async { failureHandler(error) }
+                }
+            }
         }
     }
 }
@@ -247,14 +268,17 @@ private final class PlaybackWorker {
     private var aborted = false
     private var running = false
     private var pendingFrequencyScale: Double?
-    private var frequencyScale = 1.0
+    private var frequencyScale: Double
+    private let initialFrequencyScale: Double
     private let framesPerBlock = 256
     private let fadeFrames: Int
 
-    init(source: EngineSoundSource, sampleRate: Double, ring: RingBuffer) {
+    init(source: EngineSoundSource, sampleRate: Double, ring: RingBuffer, initialFrequencyScale: Double) {
         self.source = source
         self.sampleRate = sampleRate
         self.ring = ring
+        frequencyScale = initialFrequencyScale
+        self.initialFrequencyScale = initialFrequencyScale
         fadeFrames = max(1, Int(sampleRate * 0.02))
     }
 
@@ -310,6 +334,7 @@ private final class PlaybackWorker {
             lock.unlock()
             finished.signal()
         }
+        (source as? EngineSoundThermalControllable)?.setSimulationFrequencyScale(initialFrequencyScale)
         var primary = [Int16](repeating: 0, count: framesPerBlock)
         var secondary = [Int16](repeating: 0, count: framesPerBlock)
         var mixed = [Int16](repeating: 0, count: framesPerBlock)
