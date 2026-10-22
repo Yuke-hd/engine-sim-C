@@ -251,10 +251,13 @@ final class SessionTests: XCTestCase {
         let release = DispatchSemaphore(value: 0)
         let finished = expectation(description: "player teardown")
         DispatchQueue.global().async {
-            let player = EngineSoundPlayer(session: session)
-            ready.signal()
-            release.wait()
-            withExtendedLifetime(player) {}
+            do {
+                // The player's last strong reference ends with this scope.
+                let player = EngineSoundPlayer(session: session)
+                ready.signal()
+                release.wait()
+                withExtendedLifetime(player) {}
+            }
             finished.fulfill()
         }
         XCTAssertEqual(ready.wait(timeout: .now() + 2), .success)
@@ -268,7 +271,10 @@ final class SessionTests: XCTestCase {
             center.post(name: AVAudioSession.routeChangeNotification, object: audioSession)
         }
         wait(for: [finished], timeout: 2)
-        // The player detached its handler, so later notifications reach nothing.
+        // A queued control block can briefly keep the player alive, and a weak
+        // reference clears before deinit runs, so wait for the detach itself.
+        let deadline = Date().addingTimeInterval(2)
+        while session.onEvent != nil, Date() < deadline { Thread.sleep(forTimeInterval: 0.001) }
         XCTAssertNil(session.onEvent)
         var delivered: [EngineSoundSessionEvent] = []
         session.onEvent = { delivered.append($0) }
