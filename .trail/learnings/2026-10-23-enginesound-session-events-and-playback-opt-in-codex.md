@@ -31,6 +31,9 @@ Output route changes must stop and join the old producer even if the new route
 is immediately available; then playback can restart if the host still requests
 it. iOS Simulator tests verify state transitions but cannot establish real
 headphone, Bluetooth, or speaker handoff quality; those need hardware checks.
-The historical Trail conflict applies only to runner configuration. The later
-clarification learning confirms that the package behavior and Simulator checks
-are intended.
+iOS never reports an empty output list because it falls back to the speaker, so
+detect output removal from the `.oldDeviceUnavailable` route-change reason and
+treat the player's own `.categoryChange` as a no-op. The historical Trail
+conflict applies only to runner configuration;
+`2026-10-22-clarify-enginesound-playback-test-decision-yuke.md` confirms that
+the package behavior and Simulator checks are intended.

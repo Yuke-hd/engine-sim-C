@@ -68,6 +68,7 @@ public final class EngineSoundPlayer {
     private var requestedSampleRate: Double = 0
     private var requestedPolicy: AudioSessionMixPolicy = .duckOthers
     private var interrupted = false
+    /// False after the system declines resumption or the output is removed; only `start` restores it.
     private var resumeAllowed = true
     private var outputAvailable: Bool
     private var thermalState: EngineSoundThermalState
@@ -163,8 +164,11 @@ public final class EngineSoundPlayer {
             return noErr
         }
 
-        try session.acquire(policy: policy)
-        sessionPolicy = policy
+        // Engine-only restarts keep the session, so other apps are not un-ducked.
+        if sessionPolicy == nil {
+            try session.acquire(policy: policy)
+            sessionPolicy = policy
+        }
 
         worker.start()
         // Prebuffer before connecting the device callback.
@@ -192,7 +196,17 @@ public final class EngineSoundPlayer {
             guard sampleRate.isFinite, (8_000...192_000).contains(sampleRate) else {
                 throw EngineSoundPlayerError.invalidSampleRate
             }
-            guard let worker else { return try requestStart(source, sampleRate: sampleRate, policy: requestedPolicy) }
+            guard let worker else {
+                guard requestedSource != nil else {
+                    return try requestStart(source, sampleRate: sampleRate, policy: requestedPolicy)
+                }
+                // Paused: update the request without overriding a system do-not-resume.
+                guard AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2) != nil
+                else { throw EngineSoundPlayerError.invalidSampleRate }
+                requestedSource = source
+                requestedSampleRate = sampleRate
+                return
+            }
             guard sampleRate == worker.sampleRate else { throw EngineSoundPlayerError.incompatibleSampleRate }
             requestedSource = source
             requestedSampleRate = sampleRate
@@ -208,7 +222,7 @@ public final class EngineSoundPlayer {
         }
     }
 
-    private func stopPlayback(immediate: Bool) {
+    private func stopPlayback(immediate: Bool, releasingSession: Bool = true) {
         let worker = self.worker
         self.worker = nil
         let node = self.node
@@ -219,7 +233,7 @@ public final class EngineSoundPlayer {
         if !immediate, let worker { Thread.sleep(forTimeInterval: Double(worker.ring.capacity) / worker.sampleRate) }
         engine.stop()
         if let node { engine.detach(node) }
-        deactivateSessionIfNeeded()
+        if releasingSession { deactivateSessionIfNeeded() }
     }
 
     private func deactivateSessionIfNeeded() {
@@ -235,10 +249,19 @@ public final class EngineSoundPlayer {
             stopPlayback(immediate: true)
         case .interruptionEnded(let shouldResume):
             interrupted = false
-            resumeAllowed = shouldResume
-        case .outputRouteChanged(let isAvailable):
+            if !shouldResume { resumeAllowed = false }
+        case .outputRouteChanged(let reason, let isAvailable):
             outputAvailable = isAvailable
-            stopPlayback(immediate: true)
+            switch reason {
+            case .sessionConfiguration where isAvailable:
+                break
+            case .oldDeviceUnavailable:
+                // Do not move sound to the fallback output; the host must request it again.
+                resumeAllowed = false
+                stopPlayback(immediate: true)
+            default:
+                stopPlayback(immediate: true, releasingSession: !isAvailable)
+            }
         case .thermalStateChanged(let state):
             thermalState = state
             if state == .critical { stopPlayback(immediate: true) }
@@ -253,6 +276,7 @@ public final class EngineSoundPlayer {
                 }
             }
         }
+        if worker == nil { deactivateSessionIfNeeded() }
     }
 }
 

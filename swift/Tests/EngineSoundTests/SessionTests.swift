@@ -41,10 +41,10 @@ final class SessionTests: XCTestCase {
             let session = FakeSession()
             let player = EngineSoundPlayer(session: session)
             try player.start(ToneSource())
-            session.send(.outputRouteChanged(isAvailable: false))
+            session.send(.outputRouteChanged(reason: .other, isAvailable: false))
             XCTAssertFalse(player.isPlaying)
             XCTAssertEqual(session.releases, 1)
-            session.send(.outputRouteChanged(isAvailable: true))
+            session.send(.outputRouteChanged(reason: .newDeviceAvailable, isAvailable: true))
             XCTAssertTrue(player.isPlaying)
             XCTAssertEqual(session.acquires, 2)
             player.stop()
@@ -57,11 +57,81 @@ final class SessionTests: XCTestCase {
             let player = EngineSoundPlayer(session: session)
             try player.start(ToneSource())
             session.send(.interruptionBegan)
-            session.send(.outputRouteChanged(isAvailable: false))
+            session.send(.outputRouteChanged(reason: .other, isAvailable: false))
             session.send(.interruptionEnded(shouldResume: true))
             XCTAssertFalse(player.isPlaying)
-            session.send(.outputRouteChanged(isAvailable: true))
+            session.send(.outputRouteChanged(reason: .newDeviceAvailable, isAvailable: true))
             XCTAssertTrue(player.isPlaying)
+            player.stop()
+        }
+    }
+
+    func testOutputRemovalPausesUntilHostRequestsPlayback() throws {
+        try withAudioSimulator {
+            let session = FakeSession()
+            let player = EngineSoundPlayer(session: session)
+            try player.start(ToneSource())
+            // iOS falls back to the speaker, so the route stays available.
+            session.send(.outputRouteChanged(reason: .oldDeviceUnavailable, isAvailable: true))
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertEqual(session.releases, 1)
+            session.send(.outputRouteChanged(reason: .newDeviceAvailable, isAvailable: true))
+            session.send(.interruptionBegan)
+            session.send(.interruptionEnded(shouldResume: true))
+            try player.switchSource(to: ToneSource())
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertEqual(session.acquires, 1)
+            try player.start(ToneSource())
+            XCTAssertTrue(player.isPlaying)
+            XCTAssertEqual(session.acquires, 2)
+            player.stop()
+        }
+    }
+
+    func testSessionConfigurationRouteChangeKeepsPlayback() throws {
+        try withAudioSimulator {
+            let session = FakeSession()
+            let source = AdjustableSource()
+            let player = EngineSoundPlayer(session: session)
+            try player.start(source)
+            XCTAssertEqual(source.controlThreadNames.count, 1)
+            session.send(.outputRouteChanged(reason: .sessionConfiguration, isAvailable: true))
+            XCTAssertTrue(player.isPlaying)
+            // Each producer applies the initial scale once; no new producer means no restart.
+            XCTAssertEqual(source.controlThreadNames.count, 1)
+            XCTAssertEqual(session.acquires, 1)
+            XCTAssertEqual(session.releases, 0)
+            player.stop()
+            XCTAssertEqual(session.releases, 1)
+        }
+    }
+
+    func testRouteChangeRestartsEngineWithoutReleasingSession() throws {
+        try withAudioSimulator {
+            let session = FakeSession()
+            let source = AdjustableSource()
+            let player = EngineSoundPlayer(session: session)
+            try player.start(source)
+            session.send(.outputRouteChanged(reason: .newDeviceAvailable, isAvailable: true))
+            XCTAssertTrue(player.isPlaying)
+            XCTAssertEqual(source.controlThreadNames.count, 2)
+            XCTAssertEqual(session.acquires, 1)
+            XCTAssertEqual(session.releases, 0)
+            player.stop()
+            XCTAssertEqual(session.releases, 1)
+        }
+    }
+
+    func testSwitchSourceWhilePausedKeepsSystemDoNotResume() throws {
+        try withAudioSimulator {
+            let session = FakeSession()
+            let player = EngineSoundPlayer(session: session)
+            try player.start(ToneSource())
+            session.send(.interruptionBegan)
+            session.send(.interruptionEnded(shouldResume: false))
+            try player.switchSource(to: ToneSource())
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertEqual(session.acquires, 1)
             player.stop()
         }
     }
@@ -136,7 +206,7 @@ final class SessionTests: XCTestCase {
             XCTAssertFalse(player.isPlaying)
             XCTAssertNotNil(player.lastPlaybackFailure)
             wait(for: [reported], timeout: 2)
-            session.send(.outputRouteChanged(isAvailable: true))
+            session.send(.outputRouteChanged(reason: .newDeviceAvailable, isAvailable: true))
             XCTAssertTrue(player.isPlaying)
             XCTAssertNil(player.lastPlaybackFailure)
             player.stop()
@@ -151,9 +221,9 @@ final class SessionTests: XCTestCase {
             let source = ChangingRateSwitchSource()
             try player.switchSource(to: source)
             XCTAssertEqual(source.sampleRateReads, 1)
-            session.send(.outputRouteChanged(isAvailable: false))
+            session.send(.outputRouteChanged(reason: .other, isAvailable: false))
             XCTAssertFalse(player.isPlaying)
-            session.send(.outputRouteChanged(isAvailable: true))
+            session.send(.outputRouteChanged(reason: .newDeviceAvailable, isAvailable: true))
             XCTAssertTrue(player.isPlaying)
             XCTAssertEqual(source.sampleRateReads, 1)
             player.stop()
@@ -161,6 +231,20 @@ final class SessionTests: XCTestCase {
     }
 
     #if os(iOS)
+    func testIOSRouteReasonsMapToNeutralEvents() {
+        XCTAssertEqual(IOSAudioSession.routeChangeEvent(reason: .oldDeviceUnavailable, category: .playback, hasOutputs: true),
+                       .outputRouteChanged(reason: .oldDeviceUnavailable, isAvailable: true))
+        XCTAssertEqual(IOSAudioSession.routeChangeEvent(reason: .newDeviceAvailable, category: .playback, hasOutputs: true),
+                       .outputRouteChanged(reason: .newDeviceAvailable, isAvailable: true))
+        XCTAssertEqual(IOSAudioSession.routeChangeEvent(reason: .categoryChange, category: .playback, hasOutputs: true),
+                       .outputRouteChanged(reason: .sessionConfiguration, isAvailable: true))
+        XCTAssertEqual(IOSAudioSession.routeChangeEvent(reason: .categoryChange, category: .ambient, hasOutputs: true),
+                       .outputRouteChanged(reason: .other, isAvailable: true))
+        XCTAssertEqual(IOSAudioSession.routeChangeEvent(reason: .noSuitableRouteForCategory, category: .playback,
+                                                        hasOutputs: true),
+                       .outputRouteChanged(reason: .other, isAvailable: false))
+    }
+
     func testIOSNotificationDeliveryCanOverlapPlayerTeardown() {
         let session = IOSAudioSession()
         let ready = DispatchSemaphore(value: 0)
@@ -184,6 +268,15 @@ final class SessionTests: XCTestCase {
             center.post(name: AVAudioSession.routeChangeNotification, object: audioSession)
         }
         wait(for: [finished], timeout: 2)
+        // The player detached its handler, so later notifications reach nothing.
+        XCTAssertNil(session.onEvent)
+        var delivered: [EngineSoundSessionEvent] = []
+        session.onEvent = { delivered.append($0) }
+        center.post(name: AVAudioSession.routeChangeNotification, object: audioSession,
+                    userInfo: [AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue])
+        XCTAssertEqual(delivered.last, .outputRouteChanged(reason: .oldDeviceUnavailable,
+                                                           isAvailable: session.isOutputAvailable))
+        session.onEvent = nil
     }
     #endif
 

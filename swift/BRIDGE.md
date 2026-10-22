@@ -30,15 +30,22 @@ and observes interruption, output route, and thermal notifications. An
 `EngineSoundSession` can be injected for another host or tests. Interruption
 begin and route changes stop the engine and join its producer before recovery;
 an interruption end resumes only when the system permits it, a request remains,
-and an output is available. A route change reconfigures playback even when the
-new route is available. User stop during interruption prevents a later resume.
+and an output is available. Route-change events carry a neutral reason. Removing
+the previous output (headphones, Bluetooth, CarPlay) pauses playback instead of
+moving it to the speaker; it resumes only after the host calls `start` again, as
+does an interruption end that declines resumption. Other route changes restart
+only the engine and producer while keeping the audio session active, and a
+category change from the player's own configuration is ignored. While paused,
+`switchSource` updates the request without starting playback. User stop during
+interruption prevents a later resume.
 Notification handling queues teardown off the main thread. An automatic restart
 failure is exposed through `lastPlaybackFailure` and `onPlaybackFailure`; the
 callback runs on the main queue, and the next eligible event can retry.
 
 Thermal `.serious` recommends a simulation frequency scale of 0.5 through
 `EngineSoundThermalControllable`, called on the producer thread. `.critical`
-stops playback until thermal state improves. Sources without adjustable
+stops playback until thermal state improves. Unknown future iOS thermal states
+map to `.serious`, so they lower work without stopping sound. Sources without adjustable
 simulation frequency can ignore the optional protocol; hosts may use
 `EngineSoundThermalState.simulationFrequencyScale` for their engine API.
 
