@@ -78,13 +78,17 @@ run can check that the app builds, but only the signed physical-iPhone result
 satisfies this acceptance gate.
 
 The app's **Listen** section plays the LS V8 or F136 V8 live through the device
-speaker with `EngineSoundPlayer` at 1000 Hz simulation, holding a preset RPM
-(2000-5000, which render without tripping that assertion); switching engines or
-RPM cross-fades to a new core. For headless runs through
+speaker with `EngineSoundPlayer`. Pick an idle RPM (1000, 2000 or 3000) and an
+engine; switching either cross-fades to a new core. While playing, the throttle
+slider (0-1) drives `engine_sim_set_throttle` and moves the dyno-held RPM from
+idle toward 6500 RPM at up to 3000 RPM/s, without re-creating the core. Live
+playback simulates at 4000 Hz, not the benchmark's 1000 Hz: at 1000 Hz low
+throttle and many RPMs trip the `combustion_chamber.cpp` assertion, which is
+compiled into Release builds. For headless runs through
 `xcrun devicectl device process launch --console`, set
 `DEVICECTL_CHILD_BENCHMARK_AUTORUN=1` to run the benchmark at launch, or
-`DEVICECTL_CHILD_LISTEN_SELFTEST=1` to play each engine for 4 s; both print to
-the console.
+`DEVICECTL_CHILD_LISTEN_SELFTEST=1` to sweep the throttle on each engine; both
+print to the console.
 
 Changes to upstream files, needed so clang builds them:
 

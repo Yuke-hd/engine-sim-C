@@ -110,16 +110,37 @@ private func log(_ message: String) {
     fflush(stdout)
 }
 
+/// Throttle shared between the main thread (slider) and the player's render thread.
+private final class ThrottleControl: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue = 0.0
+
+    var value: Double {
+        get { lock.lock(); defer { lock.unlock() }; return storedValue }
+        set { lock.lock(); storedValue = min(max(newValue, 0), 1); lock.unlock() }
+    }
+}
+
 /// Live engine audio for the listening controls. The player's worker thread is
-/// the only caller of render; RPM changes replace the source instead.
+/// the only caller of render, so the core is driven only from there: each block
+/// applies the shared throttle and slews the dyno-held RPM from idle (throttle 0)
+/// toward `Listener.topRPM` (throttle 1). Changing idle RPM replaces the source.
 private final class LiveEngineSource: EngineSoundSource {
     let sampleRate = Double(ENGINE_SIM_SAMPLE_RATE)
     private let core: OpaquePointer
+    private let idleRPM: Double
+    private let throttle: ThrottleControl
+    private var heldRPM: Double
 
-    init?(profile: EngineSimProfile, rpm: Double) {
-        guard let core = engine_sim_create(profile, Int32(Benchmark.simulationFrequency)) else { return nil }
+    init?(profile: EngineSimProfile, idleRPM: Double, throttle: ThrottleControl) {
+        guard let core = engine_sim_create(profile, Int32(Listener.simulationFrequency)) else { return nil }
         self.core = core
-        engine_sim_hold_rpm(core, rpm)
+        self.idleRPM = idleRPM
+        self.throttle = throttle
+        let value = throttle.value
+        heldRPM = Listener.rpm(idle: idleRPM, throttle: value)
+        engine_sim_hold_rpm(core, heldRPM)
+        engine_sim_set_throttle(core, value)
     }
 
     deinit { engine_sim_destroy(core) }
@@ -130,6 +151,12 @@ private final class LiveEngineSource: EngineSoundSource {
 
     func render(into frames: UnsafeMutableBufferPointer<Int16>) -> Int {
         guard let base = frames.baseAddress else { return 0 }
+        let value = throttle.value
+        let step = Listener.rpmSlewPerSecond * Double(frames.count) / sampleRate
+        let target = Listener.rpm(idle: idleRPM, throttle: value)
+        heldRPM += min(max(target - heldRPM, -step), step)
+        engine_sim_set_throttle(core, value)
+        engine_sim_set_target_rpm(core, heldRPM)
         return Int(engine_sim_render(core, base, Int32(frames.count)))
     }
 }
@@ -143,39 +170,60 @@ private final class Listener: ObservableObject {
 
     static let ls = Engine(profile: ENGINE_SIM_PROFILE_LS_V8, name: "LS V8")
     static let f136 = Engine(profile: ENGINE_SIM_PROFILE_F136_V8, name: "F136 V8")
-    // RPMs that render without tripping combustion_chamber.cpp at 1000 Hz.
-    static let rpmPresets = [2_000.0, 3_000.0, 4_000.0, 5_000.0]
+    // Live playback simulates at 4000 Hz (the benchmark stays at 1000 Hz): at 1000 Hz
+    // low throttle and many RPMs trip combustion_chamber.cpp's NaN-force assertion,
+    // which is compiled in for Release. Throttle 0...1 sweeps between idle and 6500
+    // RPM at 4000 Hz without tripping it for either profile (checked on macOS).
+    nonisolated static let simulationFrequency = 4_000
+    nonisolated static let topRPM = 6_500.0
+    nonisolated static let rpmSlewPerSecond = 3_000.0
+    static let idlePresets = [1_000.0, 2_000.0, 3_000.0]
+
+    nonisolated static func rpm(idle: Double, throttle: Double) -> Double {
+        idle + throttle * (topRPM - idle)
+    }
 
     @Published private(set) var playing: Engine?
     @Published private(set) var status = "Stopped"
-    @Published var rpm = Benchmark.targetRPM
+    @Published var idleRPM = 2_000.0
+    @Published private(set) var throttle = 0.0
 
     private let player = EngineSoundPlayer()
+    private let throttleControl = ThrottleControl()
     // Player start and stop block while buffering, so keep them off the main thread.
     private let queue = DispatchQueue(label: "F136DeviceBenchmark.listen")
 
+    var targetRPM: Double { Self.rpm(idle: idleRPM, throttle: throttle) }
+
     func play(_ engine: Engine) {
         playing = engine
-        let rpm = rpm
-        report("Starting \(engine.name) @ \(Int(rpm)) RPM…")
+        let idleRPM = idleRPM
+        let control = throttleControl
+        report("Starting \(engine.name), idle \(Int(idleRPM)) RPM…")
         queue.async { [player] in
-            guard let source = LiveEngineSource(profile: engine.profile, rpm: rpm) else {
+            guard let source = LiveEngineSource(profile: engine.profile, idleRPM: idleRPM, throttle: control) else {
                 Task { @MainActor in self.report("Playback error: \(engine.name) creation failed") }
                 return
             }
             do {
                 // Starts the player, or cross-fades from the current engine.
                 try player.switchSource(to: source)
-                Task { @MainActor in self.report("Playing \(engine.name) @ \(Int(rpm)) RPM") }
+                Task { @MainActor in self.report("Playing \(engine.name), idle \(Int(idleRPM)) RPM") }
             } catch {
                 Task { @MainActor in self.report("Playback error: \(error)") }
             }
         }
     }
 
-    func selectRPM(_ value: Double) {
-        rpm = value
+    func selectIdleRPM(_ value: Double) {
+        idleRPM = value
         if let playing { play(playing) }
+    }
+
+    /// Safe from the main thread: the render thread picks it up on its next block.
+    func setThrottle(_ value: Double) {
+        throttle = min(max(value, 0), 1)
+        throttleControl.value = throttle
     }
 
     func stop() {
@@ -187,18 +235,28 @@ private final class Listener: ObservableObject {
         }
     }
 
-    /// Plays each engine briefly and logs the outcome for console verification.
+    /// Plays each engine while sweeping the throttle, and logs the outcome for
+    /// console verification.
     func selfTest() async {
-        play(Self.ls)
-        try? await Task.sleep(for: .seconds(4))
-        play(Self.f136)
-        try? await Task.sleep(for: .seconds(4))
-        let (underruns, frames) = await withCheckedContinuation { continuation in
-            queue.async { [player] in
-                continuation.resume(returning: (player.underrunCount, player.consumedFrameCount))
+        for engine in [Self.ls, Self.f136] {
+            play(engine)
+            try? await Task.sleep(for: .seconds(2))
+            // 0 -> 1 -> 0 over 6 s, then a snap to full and back to closed.
+            for step in 0...120 {
+                setThrottle(step <= 60 ? Double(step) / 60 : Double(120 - step) / 60)
+                try? await Task.sleep(for: .milliseconds(50))
             }
+            setThrottle(1)
+            try? await Task.sleep(for: .seconds(2))
+            setThrottle(0)
+            try? await Task.sleep(for: .seconds(2))
+            let (underruns, frames) = await withCheckedContinuation { continuation in
+                queue.async { [player] in
+                    continuation.resume(returning: (player.underrunCount, player.consumedFrameCount))
+                }
+            }
+            report("Self-test \(engine.name): consumed \(frames) frames, underruns \(underruns)")
         }
-        report("Self-test: consumed \(frames) frames, underruns \(underruns)")
         stop()
     }
 
@@ -206,6 +264,11 @@ private final class Listener: ObservableObject {
         status = message
         log("[listen] \(message)")
     }
+}
+
+@MainActor
+private enum HeadlessLaunch {
+    static var started = false
 }
 
 private struct BenchmarkView: View {
@@ -223,10 +286,17 @@ private struct BenchmarkView: View {
 
                 Divider()
                 Text("Listen").font(.title2.bold())
-                Picker("RPM", selection: Binding(get: { listener.rpm }, set: listener.selectRPM)) {
-                    ForEach(Listener.rpmPresets, id: \.self) { Text("\(Int($0))").tag($0) }
+                Text("Idle RPM").font(.subheadline)
+                Picker("Idle RPM", selection: Binding(get: { listener.idleRPM }, set: listener.selectIdleRPM)) {
+                    ForEach(Listener.idlePresets, id: \.self) { Text("\(Int($0))").tag($0) }
                 }
                 .pickerStyle(.segmented)
+                VStack(alignment: .leading) {
+                    Text("Throttle \(Int((listener.throttle * 100).rounded()))% · target \(Int(listener.targetRPM)) RPM")
+                        .font(.subheadline.monospacedDigit())
+                    Slider(value: Binding(get: { listener.throttle }, set: listener.setThrottle), in: 0...1)
+                }
+                .disabled(listener.playing == nil)
                 HStack {
                     ForEach([Listener.ls, Listener.f136], id: \.name) { engine in
                         Button("Play \(engine.name)") { listener.play(engine) }
@@ -245,6 +315,9 @@ private struct BenchmarkView: View {
         .task {
             // Headless runs: set DEVICECTL_CHILD_BENCHMARK_AUTORUN=1 or
             // DEVICECTL_CHILD_LISTEN_SELFTEST=1 when launching via devicectl.
+            // `.task` can fire again when the view reappears; run these once per launch.
+            guard !HeadlessLaunch.started else { return }
+            HeadlessLaunch.started = true
             let environment = ProcessInfo.processInfo.environment
             if environment["BENCHMARK_AUTORUN"] == "1" { runBenchmark() }
             if environment["LISTEN_SELFTEST"] == "1" { await listener.selfTest() }
