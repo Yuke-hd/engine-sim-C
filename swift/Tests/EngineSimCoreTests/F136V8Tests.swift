@@ -36,26 +36,75 @@ final class F136V8Tests: XCTestCase {
             XCTAssertLessThan(peak, Int32(Int16.max))
             XCTAssertEqual(engine_sim_rpm(core), rpm, accuracy: rpm * 0.02)
 
-            // Find the strongest spectral component near the expected four
-            // firing events per crankshaft revolution.
+            // Report both the loudest audio component and the firing-order
+            // component; a split-bank V8 can emphasize a lower engine order.
             let expected = rpm / 60 * 4
             let count = 16384
             let start = (samples.count - count) / 2
-            func power(at frequency: Double) -> Double {
-                let step = 2 * Double.pi * frequency / 44100
-                var re = 0.0
-                var im = 0.0
-                for i in 0..<count {
-                    let x = Double(samples[start + i])
-                    re += x * cos(Double(i) * step)
-                    im += x * sin(Double(i) * step)
-                }
-                return re * re + im * im
+            var real = (0..<count).map { i in
+                let window = 0.5 - 0.5 * cos(2 * Double.pi * Double(i) / Double(count - 1))
+                return Double(samples[start + i]) * window
             }
-            let frequencies = stride(from: expected * 0.9, through: expected * 1.1, by: 1.0)
-            let dominant = frequencies.max { power(at: $0) < power(at: $1) } ?? 0
-            print("F136 \(Int(rpm)) RPM: firing peak \(dominant) Hz; expected \(expected) Hz; RMS \(rms); peak \(peak)")
-            XCTAssertEqual(dominant, expected, accuracy: expected * 0.03)
+            var imaginary = [Double](repeating: 0, count: count)
+            var j = 0
+            for i in 1..<count {
+                var bit = count >> 1
+                while j & bit != 0 {
+                    j ^= bit
+                    bit >>= 1
+                }
+                j ^= bit
+                if i < j {
+                    real.swapAt(i, j)
+                    imaginary.swapAt(i, j)
+                }
+            }
+            var width = 2
+            while width <= count {
+                let half = width / 2
+                let angle = -2 * Double.pi / Double(width)
+                for base in stride(from: 0, to: count, by: width) {
+                    for offset in 0..<half {
+                        let phase = angle * Double(offset)
+                        let cosine = cos(phase)
+                        let sine = sin(phase)
+                        let even = base + offset
+                        let odd = even + half
+                        let oddReal = real[odd] * cosine - imaginary[odd] * sine
+                        let oddImaginary = real[odd] * sine + imaginary[odd] * cosine
+                        real[odd] = real[even] - oddReal
+                        imaginary[odd] = imaginary[even] - oddImaginary
+                        real[even] += oddReal
+                        imaginary[even] += oddImaginary
+                    }
+                }
+                width <<= 1
+            }
+            var dominantBin = 1
+            var dominantPower = 0.0
+            for bin in 1..<(count / 2) {
+                let power = real[bin] * real[bin] + imaginary[bin] * imaginary[bin]
+                if power > dominantPower {
+                    dominantPower = power
+                    dominantBin = bin
+                }
+            }
+            let dominant = Double(dominantBin) * 44100 / Double(count)
+            let lowBin = Int((expected * 0.9 * Double(count) / 44100).rounded(.up))
+            let highBin = Int((expected * 1.1 * Double(count) / 44100).rounded(.down))
+            var firingBin = lowBin
+            var firingPower = 0.0
+            for bin in lowBin...highBin {
+                let power = real[bin] * real[bin] + imaginary[bin] * imaginary[bin]
+                if power > firingPower {
+                    firingPower = power
+                    firingBin = bin
+                }
+            }
+            let firingFrequency = Double(firingBin) * 44100 / Double(count)
+            print("F136 \(Int(rpm)) RPM: global peak \(dominant) Hz; firing-order peak \(firingFrequency) Hz; expected \(expected) Hz; firing/global power \(firingPower / dominantPower); RMS \(rms); peak \(peak)")
+            XCTAssertGreaterThan(firingPower, 0)
+            XCTAssertEqual(firingFrequency, expected, accuracy: expected * 0.03)
         }
     }
 

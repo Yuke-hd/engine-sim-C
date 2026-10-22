@@ -39,9 +39,9 @@ void Simulator::initialize(const Parameters &params) {
     if (params.systemType == SystemType::NsvOptimized) {
         atg_scs::OptimizedNsvRigidBodySystem *system =
             new OwnedOptimizedSystem;
+        m_system = system;
         system->initialize(
             new atg_scs::GaussSeidelSleSolver);
-        m_system = system;
     }
     else {
         atg_scs::GenericRigidBodySystem *system =

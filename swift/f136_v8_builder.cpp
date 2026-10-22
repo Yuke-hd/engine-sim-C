@@ -34,8 +34,8 @@ double circleArea(double r) { return constants::pi * r * r; }
 
 Function *newFunction(F136V8 *f136, int size, double filterRadius) {
     Function *f = new Function;
-    f->initialize(size, filterRadius);
     f136->functions.push_back(f);
+    f->initialize(size, filterRadius);
     return f;
 }
 
@@ -93,19 +93,23 @@ Camshaft *newCamshaft(F136V8 *f136, Crankshaft *crank, Function *profile, const 
     p.baseRadius = units::distance(1.0, units::inch);
 
     Camshaft *cam = new Camshaft;
+    f136->camshafts.push_back(cam);
     cam->initialize(p);
     const double rot = 90 * units::deg;
     const double rot360 = 360 * units::deg;
     for (int i = 0; i < 4; ++i) {
         cam->setLobeCenterline(i, rot360 + sign * lobeCenter + offsets[i] * rot);
     }
-    f136->camshafts.push_back(cam);
     return cam;
 }
 
 } // namespace
 
 void buildF136V8(F136V8 *f136) {
+    f136->functions.reserve(7);
+    f136->camshafts.reserve(4);
+    f136->valvetrains.reserve(2);
+    f136->impulseResponses.reserve(1);
     const double stroke = units::distance(81, units::mm);
     const double bore = units::distance(94, units::mm);
     const double rodLength = units::distance(160, units::mm);
@@ -121,13 +125,12 @@ void buildF136V8(F136V8 *f136) {
     Engine *engine = new Engine;
     f136->engine = engine;
 
+    Engine::Parameters ep;
+    ep.name = "Ferrari F136";
     DirectThrottleLinkage::Parameters throttleParams;
     throttleParams.gamma = 2.0;
     DirectThrottleLinkage *throttle = new DirectThrottleLinkage;
     throttle->initialize(throttleParams);
-
-    Engine::Parameters ep;
-    ep.name = "Ferrari F136";
     ep.starterTorque = units::torque(200, units::ft_lb);
     ep.starterSpeed = units::rpm(200);
     ep.redline = units::rpm(9000);
@@ -235,8 +238,8 @@ void buildF136V8(F136V8 *f136) {
     intake->initialize(ip);
 
     ImpulseResponse *ir = new ImpulseResponse;
-    ir->initialize("new/mild_exhaust_reverb.wav", 0.01);
     f136->impulseResponses.push_back(ir);
+    ir->initialize("new/mild_exhaust_reverb.wav", 0.01);
 
     const double exhaustLengths[2] = {units::distance(100, units::inch), units::distance(100, units::inch)};
     for (int e = 0; e < 2; ++e) {
@@ -268,8 +271,8 @@ void buildF136V8(F136V8 *f136) {
         vp.intakeCamshaft = intakeCam;
         vp.exhaustCamshaft = exhaustCam;
         StandardValvetrain *valvetrain = new StandardValvetrain;
-        valvetrain->initialize(vp);
         f136->valvetrains.push_back(valvetrain);
+        valvetrain->initialize(vp);
 
         CylinderHead::Parameters hp;
         hp.Bank = engine->getCylinderBank(b);

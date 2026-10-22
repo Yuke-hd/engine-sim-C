@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -44,16 +45,21 @@ void waitForRender(Synthesizer &synth) {
 EngineSimCore *engine_sim_create(EngineSimProfile profile, int simulationFrequency) {
     if (profile != ENGINE_SIM_PROFILE_LS_V8 && profile != ENGINE_SIM_PROFILE_F136_V8) return nullptr;
     try {
-    EngineSimCore *core = new EngineSimCore;
+    std::unique_ptr<EngineSimCore, decltype(&engine_sim_destroy)> core(new EngineSimCore, engine_sim_destroy);
     core->profile = profile;
     if (profile == ENGINE_SIM_PROFILE_LS_V8) buildLsV8(&core->ls);
     else buildF136V8(&core->f136);
 
     Engine *engine = core->engine();
-    core->simulator = static_cast<PistonEngineSimulator *>(
-        engine->createSimulator(profile == ENGINE_SIM_PROFILE_LS_V8 ? core->ls.vehicle : core->f136.vehicle,
-                                profile == ENGINE_SIM_PROFILE_LS_V8 ? core->ls.transmission : core->f136.transmission));
+    core->simulator = new PistonEngineSimulator;
     PistonEngineSimulator *sim = core->simulator;
+    Simulator::Parameters simulatorParams;
+    simulatorParams.systemType = Simulator::SystemType::NsvOptimized;
+    sim->initialize(simulatorParams);
+    sim->loadSimulation(engine,
+                        profile == ENGINE_SIM_PROFILE_LS_V8 ? core->ls.vehicle : core->f136.vehicle,
+                        profile == ENGINE_SIM_PROFILE_LS_V8 ? core->ls.transmission : core->f136.transmission);
+    sim->setFluidSimulationSteps(8);
 
     sim->setSimulationFrequency(
         simulationFrequency > 0 ? simulationFrequency : (int)engine->getSimulationFrequency());
@@ -78,15 +84,8 @@ EngineSimCore *engine_sim_create(EngineSimProfile profile, int simulationFrequen
         }
     }
 
-    // The simulator is fully initialized here. If the OS cannot start the
-    // synthesizer thread, release its buffers and engine before the C factory
-    // translates the startup exception into a null handle.
-    try { sim->startAudioRenderingThread(); }
-    catch (...) {
-        engine_sim_destroy(core);
-        throw;
-    }
-    return core;
+    sim->startAudioRenderingThread();
+    return core.release();
     }
     catch (...) { return nullptr; }
 }

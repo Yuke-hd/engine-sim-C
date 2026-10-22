@@ -32,8 +32,8 @@ double circleArea(double r) { return constants::pi * r * r; }
 
 Function *newFunction(LsV8 *ls, int size, double filterRadius) {
     Function *f = new Function;
-    f->initialize(size, filterRadius);
     ls->functions.push_back(f);
+    f->initialize(size, filterRadius);
     return f;
 }
 
@@ -91,19 +91,23 @@ Camshaft *newCamshaft(LsV8 *ls, Crankshaft *crank, Function *profile, const int 
     p.baseRadius = units::distance(1.0, units::inch);
 
     Camshaft *cam = new Camshaft;
+    ls->camshafts.push_back(cam);
     cam->initialize(p);
     const double rot = 90 * units::deg;
     const double rot360 = 360 * units::deg;
     for (int i = 0; i < 4; ++i) {
         cam->setLobeCenterline(i, rot360 + sign * lobeCenter + offsets[i] * rot);
     }
-    ls->camshafts.push_back(cam);
     return cam;
 }
 
 } // namespace
 
 void buildLsV8(LsV8 *ls) {
+    ls->functions.reserve(7);
+    ls->camshafts.reserve(4);
+    ls->valvetrains.reserve(2);
+    ls->impulseResponses.reserve(1);
     const double stroke = units::distance(3.622, units::inch);
     const double bore = units::distance(3.78, units::inch);
     const double rodLength = units::distance(160, units::mm);
@@ -120,13 +124,12 @@ void buildLsV8(LsV8 *ls) {
     Engine *engine = new Engine;
     ls->engine = engine;
 
+    Engine::Parameters ep;
+    ep.name = "GM LS";
     DirectThrottleLinkage::Parameters throttleParams;
     throttleParams.gamma = 2.0;
     DirectThrottleLinkage *throttle = new DirectThrottleLinkage;
     throttle->initialize(throttleParams);
-
-    Engine::Parameters ep;
-    ep.name = "GM LS";
     ep.starterTorque = units::torque(200, units::ft_lb);
     ep.starterSpeed = units::rpm(200);
     ep.redline = units::rpm(6500);
@@ -233,8 +236,8 @@ void buildLsV8(LsV8 *ls) {
     intake->initialize(ip);
 
     ImpulseResponse *ir = new ImpulseResponse;
-    ir->initialize("smooth/smooth_39.wav", 0.001);
     ls->impulseResponses.push_back(ir);
+    ir->initialize("smooth/smooth_39.wav", 0.001);
 
     const double exhaustLengths[2] = {units::distance(100, units::inch), units::distance(172, units::inch)};
     for (int e = 0; e < 2; ++e) {
@@ -266,8 +269,8 @@ void buildLsV8(LsV8 *ls) {
         vp.intakeCamshaft = intakeCam;
         vp.exhaustCamshaft = exhaustCam;
         StandardValvetrain *valvetrain = new StandardValvetrain;
-        valvetrain->initialize(vp);
         ls->valvetrains.push_back(valvetrain);
+        valvetrain->initialize(vp);
 
         CylinderHead::Parameters hp;
         hp.Bank = engine->getCylinderBank(b);
