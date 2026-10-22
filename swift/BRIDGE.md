@@ -18,6 +18,27 @@ The source does not know about BLE, freshness, sessions or playback. The caller
 must stop supplying stale telemetry and apply the player fade/silence policy.
 Disabling ignition immediately zeros output, including previously buffered audio.
 
+## Playback session and host lifecycle
+
+`EngineSoundPlayer.start(_:policy:)` records a host playback request. `stop()`
+clears it. The host decides when playback is wanted and owns scene visibility,
+background behavior, and any user setting that controls playback. The library
+does not infer those decisions from app lifecycle notifications.
+
+On iOS, the default `IOSAudioSession` configures the shared playback session
+and observes interruption, output route, and thermal notifications. An
+`EngineSoundSession` can be injected for another host or tests. Interruption
+begin and route changes stop the engine and join its producer before recovery;
+an interruption end resumes only when the system permits it, a request remains,
+and an output is available. A route change reconfigures playback even when the
+new route is available. User stop during interruption prevents a later resume.
+
+Thermal `.serious` recommends a simulation frequency scale of 0.5 through
+`EngineSoundThermalControllable`, called on the producer thread. `.critical`
+stops playback until thermal state improves. Sources without adjustable
+simulation frequency can ignore the optional protocol; hosts may use
+`EngineSoundThermalState.simulationFrequencyScale` for their engine API.
+
 Native lifecycle fixes free synthesizer transfer buffers, jitter histories,
 cylinder heads, rod journal arrays, displacement scratch arrays, crankshaft
 links, and the optimized solver. The solver API borrows its solver pointer;
