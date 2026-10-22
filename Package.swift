@@ -79,7 +79,10 @@ let package = Package(
                 // The solver submodule uses memset/memcpy without declaring them.
                 .unsafeFlags(["-include", "string.h", "-fdelayed-template-parsing"]),
             ],
-            linkerSettings: [.linkedLibrary("c++")]
+            linkerSettings: [
+                .linkedLibrary("c++", .when(platforms: [.macOS, .iOS])),
+                .linkedLibrary("stdc++", .when(platforms: [.linux])),
+            ]
         ),
         .testTarget(
             name: "EngineSimCoreTests",
