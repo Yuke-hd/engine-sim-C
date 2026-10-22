@@ -362,9 +362,7 @@ private final class PlaybackWorker {
         var primary = [Int16](repeating: 0, count: framesPerBlock)
         var secondary = [Int16](repeating: 0, count: framesPerBlock)
         var mixed = [Int16](repeating: 0, count: framesPerBlock)
-        var startupFrame = 0
-        var switchFrame = 0
-        var stopFrame = 0
+        var mixer = CrossfadeMixer(fadeFrames: fadeFrames)
         var fadingSource: EngineSoundSource?
 
         while true {
@@ -378,14 +376,14 @@ private final class PlaybackWorker {
             }
             lock.lock()
             if aborted { lock.unlock(); break }
-            let shouldStop = stopping
+            if stopping { mixer.beginStop() }
             let frequencyScale = pendingFrequencyScale
             pendingFrequencyScale = nil
             var beganSwitch = false
             if fadingSource == nil, let pending = nextSource {
                 fadingSource = pending
                 nextSource = nil
-                switchFrame = 0
+                mixer.beginSwitch()
                 beganSwitch = true
             }
             let currentFrequencyScale = self.frequencyScale
@@ -409,27 +407,13 @@ private final class PlaybackWorker {
                     if got < buffer.count { for index in got..<buffer.count { buffer[index] = 0 } }
                 }
             }
-            for index in 0..<framesPerBlock {
-                let startGain = min(Double(startupFrame + index) / Double(fadeFrames), 1)
-                let stopGain = shouldStop ? max(0, 1 - Double(stopFrame + index) / Double(fadeFrames)) : 1
-                let switchGain = fadingSource == nil ? 0 : min(Double(switchFrame + index) / Double(fadeFrames), 1)
-                let value = Double(primary[index]) * (1 - switchGain) + Double(secondary[index]) * switchGain
-                // 0.8 bounds the output even if a source reaches full PCM16 scale.
-                mixed[index] = Int16(max(-32768, min(32767, (value * startGain * stopGain * 0.8).rounded())))
-            }
+            let result = mixer.mix(primary: primary, secondary: secondary, into: &mixed)
             mixed.withUnsafeBufferPointer { _ = ring.write($0) }
-            startupFrame += framesPerBlock
-            if fadingSource != nil {
-                switchFrame += framesPerBlock
-                if switchFrame >= fadeFrames {
-                    source = fadingSource!
-                    fadingSource = nil
-                }
+            if result.switchCompleted, let next = fadingSource {
+                source = next
+                fadingSource = nil
             }
-            if shouldStop {
-                stopFrame += framesPerBlock
-                if stopFrame >= fadeFrames { break }
-            }
+            if result.stopCompleted { break }
         }
     }
 }

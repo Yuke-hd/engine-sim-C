@@ -36,10 +36,13 @@ destroy that core while the player may render from it. Both profile ports and
 embedded impulse responses retain the upstream MIT notice in `LICENSE`.
 
 `F136V8Tests` checks creation, limits, LS/F136 replacement and cleanup, and
-offline output at 3000 and 6000 RPM. `EngineSoundProfileTests` renders real LS
-and F136 audio, then switches a live `EngineSoundPlayer` between sources that
-retain their respective cores. On iOS Simulator it checks audio consumption,
-underruns, non-silent sources, and release of the old core after the fade.
+offline output at 3000 and 6000 RPM. `EngineSoundProfileTests` feeds offline LS
+and F136 renders through the player's cross-fade mixer at the splice with the
+largest level jump, and bounds every output step to what a linear 20 ms fade
+can add to the sources' own steps; an abrupt switch fails that bound. It also
+switches a live `EngineSoundPlayer` between sources that retain their
+respective cores. On iOS Simulator it checks audio consumption, underruns,
+non-silent sources, and release of the old core after the fade.
 Physical render throughput is measured by the device benchmark below.
 
 ## Physical iPhone F136 benchmark
