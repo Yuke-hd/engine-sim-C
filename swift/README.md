@@ -16,6 +16,10 @@ Only the solver submodule is needed:
     git submodule update --init dependencies/submodules/simple-2d-constraint-solver
     swift test
 
+The package uses `unsafeFlags` (`-fdelayed-template-parsing`), so consume it by path or
+submodule, not as a versioned remote dependency. The benchmark test is skipped unless
+`ENGINE_SIM_BENCHMARK=1` is set.
+
 Changes to upstream files, needed so clang builds them:
 
 - `include/units.h`, `include/constants.h`: `extern constexpr` to `inline constexpr`
@@ -23,5 +27,7 @@ Changes to upstream files, needed so clang builds them:
 - `include/gas_system.h`: user-provided `Mix()` constructor (clang rejects its use as a
   default argument inside `GasSystem`).
 - `src/synthesizer.cpp`: drop the unused `delta.h` include.
+- `src/piston_engine_simulator.cpp`: drop an assert on the nonexistent `m_antialiasingFilters` member.
+- `src/simulator.cpp`, `src/piston_engine_simulator.cpp`: `PistonEngineSimulator::destroy()` now calls `Simulator::destroy()`, and that frees `m_dynoTorqueSamples` (it leaked and tripped the destructor assert).
 - `src/engine.cpp`, `src/connecting_rod.cpp`: drop the Windows-style `..\include\...` includes
   that duplicate the forward-slash ones.

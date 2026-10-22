@@ -323,6 +323,8 @@ void buildLsV8(LsV8 *ls) {
     }
     Fuel::Parameters fp;
     fp.maxBurningEfficiency = 1.0;
+    // The script's fuel() defaults (es/objects/objects.mr) differ from the struct defaults (50).
+    fp.maxDilutionEffect = 10.0;
     fp.turbulenceToFlameSpeedRatio = flame;
     engine->getFuel()->initialize(fp);
 

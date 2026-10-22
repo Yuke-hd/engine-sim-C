@@ -1,5 +1,5 @@
 // Generated from engine-sim assets/sound-library/smooth/smooth_39.wav
-// (PCM16 mono 44.1 kHz WAV file bytes, MIT, see NOTICE).
+// (PCM16 mono 44.1 kHz WAV file bytes, MIT, see LICENSE and swift/README.md).
 #include "ls_v8_impulse_response.h"
 
 const uint8_t kLsV8ImpulseResponseWav[] = {

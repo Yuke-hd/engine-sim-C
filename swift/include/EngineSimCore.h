@@ -28,6 +28,9 @@ int engine_sim_render(EngineSimCore *core, int16_t *out, int sampleCount);
 
 /// Same output, but waits for the synthesizer after every 1/60 s frame so
 /// physics and audio never overlap. Slower; kept for comparison and debugging.
+/// Request at least 735 samples (one frame at 44.1 kHz) per call: with smaller
+/// requests the synthesizer's output buffer fills and each call waits out a
+/// 200 ms timeout.
 int engine_sim_render_synchronous(EngineSimCore *core, int16_t *out, int sampleCount);
 
 double engine_sim_rpm(const EngineSimCore *core);

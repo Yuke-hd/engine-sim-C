@@ -73,11 +73,8 @@ let package = Package(
                 .headerSearchPath("include"),
                 .headerSearchPath("swift"),
                 .define("__forceinline", to: "inline"),
-                // piston_engine_simulator.cpp asserts on an undeclared identifier,
-                // which only compiles with asserts off.
-                .define("NDEBUG"),
                 // Upstream templates rely on MSVC-style delayed template parsing.
-                .unsafeFlags(["-fdelayed-template-parsing", "-O2"]),
+                .unsafeFlags(["-fdelayed-template-parsing"]),
             ],
             linkerSettings: [.linkedLibrary("c++")]
         ),
