@@ -47,12 +47,14 @@ jobs:
     # Actual install step (only runs if the cache is empty)
     - name: Install boost
       if: steps.cache-boost.outputs.cache-hit != 'true'
-      uses: MarkusJx/install-boost@v2.3.0
+      uses: MarkusJx/install-boost@v2.6.0
       with:
         # Set the boost version (required)
         boost_version: ${{env.BOOST_VERSION}}
         # Set the install directory
-        boost_install_dir: ${{env.BOOST_PATH}}
+        boost_install_dir: ${{github.workspace}}
+        # The actions/cache step above already caches the Boost directory.
+        cache: false
         # Set your platform version
         platform_version: 2022
         # Set the toolset
@@ -63,7 +65,7 @@ jobs:
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
       env:
-        BOOST_ROOT: ${{ steps.install-boost.outputs.BOOST_ROOT }}
+        BOOST_ROOT: ${{env.BOOST_PATH}}boost
 
 
     - name: Build
