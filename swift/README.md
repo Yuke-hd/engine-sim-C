@@ -28,8 +28,12 @@ Create the F136 profile with `engine_sim_create(ENGINE_SIM_PROFILE_F136_V8,
 simulationFrequency)`. Its stable neutral profile ID is `1`. Query the
 valid target range with `engine_sim_profile_min_rpm` and
 `engine_sim_profile_max_rpm` (0 to 9000 RPM for F136). Destroy the previous
-handle before creating a replacement profile. Both profile ports and embedded
-impulse responses retain the upstream MIT notice in `LICENSE`.
+handle when direct C API playback no longer uses it. For an
+`EngineSoundPlayer` source switch, create the new core-owning source and call
+`switchSource(to:)`; the player retains the old source and its core until the
+cross-fade finishes, even after the caller releases its reference. Do not
+destroy that core while the player may render from it. Both profile ports and
+embedded impulse responses retain the upstream MIT notice in `LICENSE`.
 
 `F136V8Tests` checks creation, limits, LS/F136 replacement and cleanup, and
 offline output at 3000 and 6000 RPM. `EngineSoundProfileTests` renders real LS
