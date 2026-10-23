@@ -84,33 +84,50 @@ engines as reference lines only; they are not gated. Only 3000 RPM is measured:
 at 1000 Hz simulation, 1000 RPM, and 6000/7500 RPM (LS) or 8500 RPM (F136), trip
 the `combustion_chamber.cpp` assertion. A Simulator
 run can check that the app builds, but only the signed physical-iPhone result
-satisfies this acceptance gate. That physical result has not yet been recorded.
+satisfies this acceptance gate.
 
-### Known limitation: 1000 Hz simulation
+Recorded on iPhone 12 Pro, iOS 26.0.1, Release: a cool (nominal) start measured
+LS median 0.633 and F136 median 0.629 (PASS), and a later run measured
+LS 0.636 and F136 0.665. A warm F136 median is about 0.70, which fails the
+strict bound, so compare only cool starts. At 10 kHz the synthesizer's
+convolution is no longer the critical path: `ConvolutionFilter::f` in
+`src/convolution_filter.cpp` uses a NEON dot product on arm64 (other targets
+keep the original scalar loop; see `check_convolution_filter.sh` above), and the
+physics thread now dominates. Physics optimization is tracked in issue #16.
 
-At 1000 Hz, debug renders of both profiles near idle and redline (1000 and
-8500 RPM for F136, 1000 and 7500 RPM for LS) produce a NaN or infinite
-cylinder force and stop on `assert(false)` in `src/combustion_chamber.cpp`
-(`CombustionChamber::apply`). Release builds compile the assertion out, so the
-invalid value can reach the audio output. The same RPMs render cleanly at 2000,
-5000 and 10,000 Hz. The benchmark and `EngineSoundProfileTests` use 1000 Hz only
-at 3000 RPM, so a benchmark PASS does not validate 1000 Hz across a profile's
-reported RPM range. Keep the default 10,000 Hz (pass 0) unless a lower rate has
-been checked over the RPMs the host will request.
+### Device demo
 
 The app's **Listen** section plays the LS V8 or F136 V8 live through the device
 speaker with `EngineSoundPlayer`. Pick an idle RPM (1000, 2000 or 3000) and an
 engine; switching either cross-fades to a new core. While playing, the throttle
 slider (0-1) drives `engine_sim_set_throttle` and moves the dyno-held RPM from
-idle toward 6500 RPM at up to 3000 RPM/s, without re-creating the core. Live
-playback simulates at 4000 Hz, a demo choice rather than the 10 kHz gate
-setting: at 1000-2000 Hz low throttle and many RPMs trip the
-`combustion_chamber.cpp` assertion, which is compiled into Release builds. For headless runs through
+idle toward 6500 RPM at up to 3000 RPM/s, without re-creating the core. The
+slider value is applied inside the source's `render(into:)` on the player's
+worker thread, so the main thread never calls into the core. Live playback
+simulates at 4000 Hz. That is a demo choice, not the package default (10 kHz,
+selected by passing 0 to `engine_sim_create`) or the gate setting; see the
+limitation below. For headless runs through
 `xcrun devicectl device process launch --console`, set
 `DEVICECTL_CHILD_BENCHMARK_AUTORUN=1` to run the benchmark at launch, or
 `DEVICECTL_CHILD_LISTEN_SELFTEST=1` to sweep the throttle on each engine; both
 print to the console. If both are set, only the benchmark runs and the app
 prints that the self-test was skipped.
+
+### Known limitation: 1000-2000 Hz simulation
+
+At 1000-2000 Hz the cylinder force in `CombustionChamber::apply` can become
+NaN or infinite and stop on `assert(false)` at `src/combustion_chamber.cpp:417`.
+At 1000 Hz this happens at 1000 RPM for both profiles, at 6000 and 7500 RPM for
+LS and at 8500 RPM for F136, and with low throttle at many other RPMs. At
+2000 Hz it still happens at 5000-6500 RPM with low throttle. 4000 Hz passed
+every tested combination (1000-6500 RPM, throttle 0, 0.1 and 1, and ramp and
+snap throttle sweeps). The Xcode Release build of the package does not define
+`NDEBUG`, so the assertion aborts the device app; a build that defines `NDEBUG`
+compiles it out and the invalid value can reach the audio output. This is an
+upstream engine-sim limitation and is not yet filed as an issue. The benchmark's
+1000 Hz reference lines and `EngineSoundProfileTests` use 1000 Hz only at
+3000 RPM. Keep the default 10 kHz (pass 0) unless a lower rate has been checked
+over the RPMs and throttles the host will request.
 
 ## C API
 
@@ -258,6 +275,30 @@ control, render, and teardown, as in the example, or route all calls onto
 the same producer thread. Calling the C setters on a live source from an
 unsynchronized telemetry callback races the worker. Prepare replacement
 sources before switching them into the player.
+
+## Stacked work not in this branch
+
+This README describes the package as of the F136 branch (PR #10) that this
+documentation is stacked on. Two approved sibling PRs, also based on the
+playback branch (PR #9), are not merged and are not part of this tree, so their
+APIs are not available here yet:
+
+- PR #12 (issue #3) adds `RPMFollower`, which turns timestamped
+  `RPMFollowerInput` readings (RPM, `RPMFreshness`, age, accelerator throttle)
+  into `RPMFollowerOutput` target RPM, throttle and gain. It interpolates new
+  readings and fades gain to silence when a reading is invalid, stale or older
+  than `maxReadingAge` (0.5 s by default).
+- PR #14 (issue #5) adds an injectable `EngineSoundSession` (with the iOS
+  `IOSAudioSession` adapter) and `EngineSoundPlayer(session:)`. The player then
+  handles interruptions, output route changes (`EngineSoundRouteChangeReason`;
+  removing headphones, Bluetooth or CarPlay pauses until the host calls `start`
+  again) and thermal state (`EngineSoundThermalState`; `.serious` asks an
+  `EngineSoundThermalControllable` source for half the simulation frequency,
+  `.critical` stops playback until it improves). Automatic resume failures are
+  reported through `lastPlaybackFailure` and `onPlaybackFailure`. Its
+  `swift/BRIDGE.md` section documents the details.
+
+These sections will be folded into this README once both PRs are merged.
 
 ## Source and licenses
 

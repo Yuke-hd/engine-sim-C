@@ -61,6 +61,10 @@ submodule.
 Run `swift test` and `xcodebuild test -scheme EngineSim-Package -destination
 'platform=iOS Simulator,id=<available-device-id>' CODE_SIGNING_ALLOWED=NO`.
 Use `xcrun simctl list devices available` to select the simulator.
+After changing `src/convolution_filter.cpp`, also run
+`bash swift/Tests/check_convolution_filter.sh`; it checks the arm64 NEON dot
+product against a double-precision reference and, on Apple silicon with
+Rosetta, the x86_64 scalar fallback against the original float loop.
 
 On macOS, `bash swift/Tests/check_bridge_leaks.sh` builds a standalone native
 probe and runs `leaks --atExit` over 40 create/control/render/destroy cycles.
