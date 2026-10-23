@@ -45,6 +45,14 @@ respective cores. On iOS Simulator it checks audio consumption, underruns,
 non-silent sources, and release of the old core after the fade.
 Physical render throughput is measured by the device benchmark below.
 
+`bash swift/Tests/check_convolution_filter.sh` is not part of `swift test`; run
+it after changing `src/convolution_filter.cpp`. It builds
+`swift/Tests/ConvolutionFilter/main.cpp` with clang++ and checks
+`ConvolutionFilter::f` for impulse-response lengths from 1 to 10000 at every
+ring offset. On the native build (NEON on arm64) the largest error against a
+double-precision reference must be at most 1e-5 of the output RMS. On Apple silicon with Rosetta it also builds x86_64, where the
+scalar fallback must match the original float loop bit for bit.
+
 ## Physical iPhone F136 benchmark
 
 The benchmark is an iOS host app in
