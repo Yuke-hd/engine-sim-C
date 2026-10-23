@@ -18,7 +18,8 @@ let package = Package(
         .library(name: "EngineSound", targets: ["EngineSound"]),
     ],
     targets: [
-        .target(name: "EngineSound"),
+        .target(name: "EngineSound", dependencies: ["EngineSoundRing"]),
+        .target(name: "EngineSoundRing", path: "swift/Sources/EngineSoundRing", publicHeadersPath: "include"),
         .target(
             name: "EngineSimCore",
             path: ".",
@@ -89,6 +90,7 @@ let package = Package(
             dependencies: ["EngineSimCore"],
             path: "swift/Tests/EngineSimCoreTests"
         ),
+        .testTarget(name: "EngineSoundTests", dependencies: ["EngineSound"], path: "swift/Tests/EngineSoundTests"),
     ],
     cxxLanguageStandard: .cxx17
 )
