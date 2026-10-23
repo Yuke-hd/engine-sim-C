@@ -81,6 +81,10 @@ let package = Package(
                 // Upstream templates rely on MSVC-style delayed template parsing.
                 // The solver submodule uses memset/memcpy without declaring them.
                 .unsafeFlags(["-include", "string.h", "-fdelayed-template-parsing"]),
+                // The native producer must keep up with the audio device even
+                // when its host uses Debug. Leave the Swift player and host UI
+                // debuggable; unoptimized physics renders below playback speed.
+                .unsafeFlags(["-O2"], .when(configuration: .debug)),
             ],
             linkerSettings: [
                 .linkedLibrary("c++", .when(platforms: [.macOS, .iOS])),

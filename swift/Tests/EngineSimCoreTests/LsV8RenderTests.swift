@@ -61,4 +61,34 @@ final class LsV8RenderTests: XCTestCase {
             }
         }
     }
+
+    func testLiveBlockRenderingKeepsUpWithPlayback() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["ENGINE_SIM_BENCHMARK"] != nil,
+                          "set ENGINE_SIM_BENCHMARK=1 to compare live-size and bulk renders")
+        let seconds = 3
+        for blockSize in [256, sampleRate * 3] {
+            let core = try XCTUnwrap(engine_sim_create_ls_v8(0))
+            defer { engine_sim_destroy(core) }
+            engine_sim_hold_rpm(core, 1000)
+            var warmup = [Int16](repeating: 0, count: sampleRate / 2)
+            XCTAssertEqual(engine_sim_render(core, &warmup, Int32(warmup.count)), Int32(warmup.count))
+            var samples = [Int16](repeating: 0, count: blockSize)
+            var written = 0
+            var energy = 0.0
+            let start = DispatchTime.now().uptimeNanoseconds
+            while written < sampleRate * seconds {
+                let count = min(blockSize, sampleRate * seconds - written)
+                XCTAssertEqual(engine_sim_render(core, &samples, Int32(count)), Int32(count))
+                for sample in samples.prefix(count) { energy += Double(sample) * Double(sample) }
+                written += count
+            }
+            let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
+            XCTAssertGreaterThan((energy / Double(written)).squareRoot(), 100, "output is silent")
+            print("BENCHMARK LS V8 1000 RPM \(blockSize)-sample blocks: \(String(format: "%.2f", Double(seconds) / elapsed))x real time")
+            if blockSize == 256 {
+                XCTAssertLessThan(elapsed, Double(seconds),
+                                  "the live player's producer must render faster than audio is consumed")
+            }
+        }
+    }
 }
