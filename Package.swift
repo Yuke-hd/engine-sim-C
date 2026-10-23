@@ -68,8 +68,10 @@ let package = Package(
                 solver,
                 "swift/engine_sim_core.cpp",
                 "swift/ls_v8_builder.cpp",
+                "swift/f136_v8_builder.cpp",
                 "swift/wav_reader.cpp",
                 "swift/ls_v8_impulse_response.cpp",
+                "swift/f136_v8_impulse_response.cpp",
             ],
             publicHeadersPath: "swift/include",
             cxxSettings: [
@@ -91,6 +93,7 @@ let package = Package(
             path: "swift/Tests/EngineSimCoreTests"
         ),
         .testTarget(name: "EngineSoundTests", dependencies: ["EngineSound"], path: "swift/Tests/EngineSoundTests"),
+        .testTarget(name: "EngineSoundProfileTests", dependencies: ["EngineSound", "EngineSimCore"], path: "swift/Tests/EngineSoundProfileTests"),
     ],
     cxxLanguageStandard: .cxx17
 )

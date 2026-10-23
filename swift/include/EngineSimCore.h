@@ -8,7 +8,10 @@ extern "C" {
 #endif
 
 typedef struct EngineSimCore EngineSimCore;
-typedef enum { ENGINE_SIM_PROFILE_LS_V8 = 0 } EngineSimProfile;
+typedef enum {
+    ENGINE_SIM_PROFILE_LS_V8 = 0,
+    ENGINE_SIM_PROFILE_F136_V8 = 1
+} EngineSimProfile;
 
 // All operations on a handle must be serialized on a producer thread. Render
 // performs physics and may block: never call it in a real-time audio callback.
@@ -21,12 +24,17 @@ EngineSimCore *engine_sim_create(EngineSimProfile profile, int simulationFrequen
 /// Builds the GM LS V8 with its exhaust impulse response and starts the audio thread.
 /// `simulationFrequency` is the physics rate in Hz; 0 selects the default (10000).
 EngineSimCore *engine_sim_create_ls_v8(int simulationFrequency);
+/// Returns the neutral profile identifier used to create this handle, or -1 for null.
+EngineSimProfile engine_sim_profile(const EngineSimCore *core);
+/// Valid target RPM range for a profile; unknown profiles return 0.
+double engine_sim_profile_min_rpm(EngineSimProfile profile);
+double engine_sim_profile_max_rpm(EngineSimProfile profile);
 void engine_sim_destroy(EngineSimCore *core);
 
 /// Enables ignition and the dynamometer and holds the crankshaft at `rpm`.
 void engine_sim_hold_rpm(EngineSimCore *core, double rpm);
 
-// Finite RPM is clamped to 0...8000, throttle to 0...1; nonfinite inputs
+// Finite RPM is clamped to the selected profile's bounds, throttle to 0...1; nonfinite inputs
 // are ignored. Ignition off immediately mutes even previously queued audio.
 // Independent producer-thread controls; unlike hold_rpm these do not alter
 // one another. The dynamometer holds the requested telemetry RPM.

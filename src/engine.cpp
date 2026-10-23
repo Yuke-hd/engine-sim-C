@@ -53,6 +53,8 @@ Engine::~Engine() {
 }
 
 void Engine::initialize(const Parameters &params) {
+    // Own the throttle before any allocation (including the name copy) can throw.
+    m_throttle = params.throttle;
     m_crankshaftCount = params.crankshaftCount;
     m_cylinderCount = params.cylinderCount;
     m_cylinderBankCount = params.cylinderBanks;
@@ -65,7 +67,6 @@ void Engine::initialize(const Parameters &params) {
     m_dynoHoldStep = params.dynoHoldStep;
     m_redline = params.redline;
     m_name = params.name;
-    m_throttle = params.throttle;
     m_initialHighFrequencyGain = params.initialHighFrequencyGain;
     m_initialSimulationFrequency = params.initialSimulationFrequency;
     m_initialJitter = params.initialJitter;
@@ -90,25 +91,25 @@ void Engine::initialize(const Parameters &params) {
 }
 
 void Engine::destroy() {
-    for (int i = 0; i < m_crankshaftCount; ++i) {
+    for (int i = 0; m_crankshafts != nullptr && i < m_crankshaftCount; ++i) {
         m_crankshafts[i].destroy();
     }
 
     for (int i = 0; i < m_cylinderCount; ++i) {
-        m_pistons[i].destroy();
-        m_connectingRods[i].destroy();
-        m_combustionChambers[i].destroy();
+        if (m_pistons != nullptr) m_pistons[i].destroy();
+        if (m_connectingRods != nullptr) m_connectingRods[i].destroy();
+        if (m_combustionChambers != nullptr) m_combustionChambers[i].destroy();
     }
 
-    for (int i = 0; i < m_exhaustSystemCount; ++i) {
+    for (int i = 0; m_exhaustSystems != nullptr && i < m_exhaustSystemCount; ++i) {
         m_exhaustSystems[i].destroy();
     }
 
-    for (int i = 0; i < m_intakeCount; ++i) {
+    for (int i = 0; m_intakes != nullptr && i < m_intakeCount; ++i) {
         m_intakes[i].destroy();
     }
 
-    for (int i = 0; i < m_cylinderBankCount; ++i) m_heads[i].destroy();
+    for (int i = 0; m_heads != nullptr && i < m_cylinderBankCount; ++i) m_heads[i].destroy();
 
     m_ignitionModule.destroy();
 

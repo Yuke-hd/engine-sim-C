@@ -123,9 +123,11 @@ void Synthesizer::endAudioRenderingThread() {
 void Synthesizer::destroy() {
     m_audioBuffer.destroy();
 
-    for (int i = 0; i < m_inputChannelCount; ++i) {
+    for (int i = 0; m_inputChannels != nullptr && i < m_inputChannelCount; ++i) {
         m_inputChannels[i].data.destroy();
         delete[] m_inputChannels[i].transferBuffer;
+    }
+    for (int i = 0; m_filters != nullptr && i < m_inputChannelCount; ++i) {
         m_filters[i].convolution.destroy();
     }
 

@@ -4,6 +4,7 @@
 #include <string.h>
 #include <assert.h>
 #include <cmath>
+#include <memory>
 
 GaussianFilter *Function::DefaultGaussianFilter = nullptr;
 
@@ -40,19 +41,19 @@ void Function::initialize(int size, double filterRadius, GaussianFilter *filter)
 }
 
 void Function::resize(int newCapacity) {
-    double *new_x = new double[newCapacity];
-    double *new_y = new double[newCapacity];
+    std::unique_ptr<double[]> new_x(new double[newCapacity]);
+    std::unique_ptr<double[]> new_y(new double[newCapacity]);
 
     if (m_size > 0) {
-        memcpy(new_x, m_x, sizeof(double) * m_size);
-        memcpy(new_y, m_y, sizeof(double) * m_size);
+        memcpy(new_x.get(), m_x, sizeof(double) * m_size);
+        memcpy(new_y.get(), m_y, sizeof(double) * m_size);
     }
 
     delete[] m_x;
     delete[] m_y;
 
-    m_x = new_x;
-    m_y = new_y;
+    m_x = new_x.release();
+    m_y = new_y.release();
 
     m_capacity = newCapacity;
 }
