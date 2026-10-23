@@ -1,5 +1,7 @@
 import EngineSimCore
-import EngineSound
+// EngineSoundPlayer is not marked Sendable, but it serializes its public API on an
+// internal lock, and this app only calls it from Listener's serial queue.
+@preconcurrency import EngineSound
 import SwiftUI
 import UIKit
 
