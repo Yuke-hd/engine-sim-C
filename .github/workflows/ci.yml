@@ -30,3 +30,8 @@ jobs:
 
       - name: Test package
         run: swift test -c release
+
+      - name: Check Debug live-render throughput
+        env:
+          ENGINE_SIM_BENCHMARK: "1"
+        run: swift test -c debug --filter LsV8RenderTests.testLiveBlockRenderingKeepsUpWithPlayback
