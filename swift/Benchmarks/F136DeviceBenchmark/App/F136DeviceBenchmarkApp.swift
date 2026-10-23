@@ -238,25 +238,42 @@ private final class Listener: ObservableObject {
     private let throttleControl = ThrottleControl()
     // Player start and stop block while buffering, so keep them off the main thread.
     private let queue = DispatchQueue(label: "F136DeviceBenchmark.listen")
+    /// Bumped by every play and stop, so only the latest request updates `playing`.
+    private var request = 0
 
     var targetRPM: Double { Self.rpm(idle: idleRPM, throttle: throttle) }
 
+    /// `playing` is set only once the new source is playing. On failure the
+    /// player is stopped, so the UI shows the error and nothing playing.
     func play(_ engine: Engine) {
-        playing = engine
+        request += 1
+        let id = request
         let idleRPM = idleRPM
         let control = throttleControl
         report("Starting \(engine.name), idle \(Int(idleRPM)) RPM…")
         queue.async { [player] in
-            guard let source = LiveEngineSource(profile: engine.profile, idleRPM: idleRPM, throttle: control) else {
-                Task { @MainActor in self.report("Playback error: \(engine.name) creation failed") }
-                return
+            let failure: String
+            if let source = LiveEngineSource(profile: engine.profile, idleRPM: idleRPM, throttle: control) {
+                do {
+                    // Starts the player, or cross-fades from the current engine.
+                    try player.switchSource(to: source)
+                    Task { @MainActor in
+                        guard id == self.request else { return }
+                        self.playing = engine
+                        self.report("Playing \(engine.name), idle \(Int(idleRPM)) RPM")
+                    }
+                    return
+                } catch {
+                    failure = "\(error)"
+                }
+            } else {
+                failure = "\(engine.name) creation failed"
             }
-            do {
-                // Starts the player, or cross-fades from the current engine.
-                try player.switchSource(to: source)
-                Task { @MainActor in self.report("Playing \(engine.name), idle \(Int(idleRPM)) RPM") }
-            } catch {
-                Task { @MainActor in self.report("Playback error: \(error)") }
+            player.stop()
+            Task { @MainActor in
+                guard id == self.request else { return }
+                self.playing = nil
+                self.report("Playback error: \(failure)")
             }
         }
     }
@@ -273,6 +290,7 @@ private final class Listener: ObservableObject {
     }
 
     func stop() {
+        request += 1
         playing = nil
         queue.async { [player] in
             let underruns = player.underrunCount
