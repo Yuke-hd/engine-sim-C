@@ -95,7 +95,8 @@ setting: at 1000-2000 Hz low throttle and many RPMs trip the
 `xcrun devicectl device process launch --console`, set
 `DEVICECTL_CHILD_BENCHMARK_AUTORUN=1` to run the benchmark at launch, or
 `DEVICECTL_CHILD_LISTEN_SELFTEST=1` to sweep the throttle on each engine; both
-print to the console.
+print to the console. If both are set, only the benchmark runs and the app
+prints that the self-test was skipped.
 
 Changes to upstream files, needed so clang builds them:
 

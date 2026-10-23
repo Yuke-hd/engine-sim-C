@@ -365,8 +365,14 @@ private struct BenchmarkView: View {
             guard !HeadlessLaunch.started else { return }
             HeadlessLaunch.started = true
             let environment = ProcessInfo.processInfo.environment
-            if environment["BENCHMARK_AUTORUN"] == "1" { runBenchmark() }
-            if environment["LISTEN_SELFTEST"] == "1" { await listener.selfTest() }
+            // One mode per launch: live playback would contaminate the timed renders.
+            let selfTest = environment["LISTEN_SELFTEST"] == "1"
+            if environment["BENCHMARK_AUTORUN"] == "1" {
+                if selfTest { log("[listen] Self-test skipped: BENCHMARK_AUTORUN takes precedence") }
+                runBenchmark()
+            } else if selfTest {
+                await listener.selfTest()
+            }
         }
     }
 
