@@ -415,6 +415,7 @@ void CombustionChamber::apply(atg_scs::SystemState *system) {
 
     if (std::isnan(force) || std::isinf(force)) {
         assert(false);
+        return; // Release builds must never pass invalid pressure forces to the solver.
     }
 
     constexpr double limit = 1E-3;
@@ -426,11 +427,18 @@ void CombustionChamber::apply(atg_scs::SystemState *system) {
         ? -F
         : F;
 
+    const double force_x = (force + F_fric) * bank->getDx();
+    const double force_y = (force + F_fric) * bank->getDy();
+    if (!std::isfinite(force_x) || !std::isfinite(force_y)) {
+        assert(false);
+        return;
+    }
+
     system->applyForce(
         0.0,
         0.0,
-        (force + F_fric) * bank->getDx(),
-        (force + F_fric) * bank->getDy(),
+        force_x,
+        force_y,
         m_piston->m_body.index);
 }
 

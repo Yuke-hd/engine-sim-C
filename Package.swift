@@ -78,6 +78,10 @@ let package = Package(
                 .headerSearchPath("include"),
                 .headerSearchPath("swift"),
                 .define("__forceinline", to: "inline"),
+                // Inline physics calls across translation units in production builds.
+                // Keep IEEE arithmetic; invalid forces are guarded before application.
+                .define("NDEBUG", .when(configuration: .release)),
+                .unsafeFlags(["-O3", "-flto=thin"], .when(configuration: .release)),
                 // Upstream templates rely on MSVC-style delayed template parsing.
                 // The solver submodule uses memset/memcpy without declaring them.
                 .unsafeFlags(["-include", "string.h", "-fdelayed-template-parsing"]),

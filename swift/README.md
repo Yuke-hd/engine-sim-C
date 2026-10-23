@@ -113,6 +113,13 @@ limitation below. For headless runs through
 print to the console. If both are set, only the benchmark runs and the app
 prints that the self-test was skipped.
 
+### Minimum validated simulation frequency
+
+**4000 Hz is the lowest validated rate** for both profiles over 1000–6500 RPM,
+throttle 0, 0.1 and 1, and ramp/snap throttle sweeps. Treat it as the minimum
+for that tested range; it is not a guarantee for other profiles or operating
+conditions. The production default remains **10,000 Hz**.
+
 ### Known limitation: 1000-2000 Hz simulation
 
 At 1000-2000 Hz the cylinder force in `CombustionChamber::apply` can become
@@ -121,10 +128,11 @@ At 1000 Hz this happens at 1000 RPM for both profiles, at 6000 and 7500 RPM for
 LS and at 8500 RPM for F136, and with low throttle at many other RPMs. At
 2000 Hz it still happens at 5000-6500 RPM with low throttle. 4000 Hz passed
 every tested combination (1000-6500 RPM, throttle 0, 0.1 and 1, and ramp and
-snap throttle sweeps). The Xcode Release build of the package does not define
-`NDEBUG`, so the assertion aborts the device app; a build that defines `NDEBUG`
-compiles it out and the invalid value can reach the audio output. This is an
-upstream engine-sim limitation and is not yet filed as an issue. The benchmark's
+snap throttle sweeps). Debug builds assert on the invalid force. Release builds
+define `NDEBUG` and explicitly reject nonfinite pressure/friction forces before
+they reach the solver. Rejection does not repair the underlying unstable gas
+state or make low-frequency playback safe; keep to the validated range. This
+upstream stability limitation is tracked in #16. The benchmark's
 1000 Hz reference lines and `EngineSoundProfileTests` use 1000 Hz only at
 3000 RPM. Keep the default 10 kHz (pass 0) unless a lower rate has been checked
 over the RPMs and throttles the host will request.
@@ -306,3 +314,44 @@ output to its source and its own gain stage.
 ## Source and licenses
 
 [`NOTICE`](../NOTICE) records the pinned upstream engine-sim and solver revisions, the source and sound assets used by this package, local changes, and their MIT license notices. The root [`LICENSE`](../LICENSE) retains the engine-sim notice. A distribution containing the package must carry both notices.
+
+## Physics performance comparison (#16)
+
+Release builds compile the native core and solver with `-O3 -flto=thin`, allowing
+physics calls to inline across translation units. IEEE floating-point
+arithmetic remains enabled without fast-math. Release also defines `NDEBUG`
+to remove solver bounds assertions; `CombustionChamber::apply` explicitly rejects
+nonfinite pressure and projected forces before touching solver state. Debug
+assertions stay enabled. Solver tolerance, fluid substep count, default frequency,
+and public API remain unchanged. Run `bash swift/Tests/check_force_guard.sh`
+to verify injected NaN and positive/negative infinity against the Release core.
+
+For host diagnostics, run one revision at a time with no other builds or tests:
+
+```sh
+bash swift/Benchmarks/PhysicsCost/run.sh /tmp/reference > /tmp/reference.txt
+# Repeat on the candidate revision, using /tmp/candidate as the prefix.
+python3 swift/Benchmarks/PhysicsCost/compare.py /tmp/reference /tmp/candidate
+```
+
+The comparison script requires NumPy in the invoking Python environment. The
+native probe reports five timed 3 s renders per profile at the default 10 kHz,
+3000 RPM, after 0.5 s settling and a discarded 3 s warm-up. It also saves two
+seconds of mono PCM16 after two seconds settling for both profiles at
+1500/3000/5000 RPM and throttle 0/0.5/1. `--timing-only` omits the PCM sweep.
+Comparison uses the final 65,536 samples with a Hann window (0.673 Hz bins),
+reports firing-order peaks in ±10% of RPM/15 and dominant peaks over 40–600 Hz,
+plus whole-render RMS, sample peak and clipping counts. The regression tolerance
+is firing peaks within 3% of expected, dominant peaks within one FFT bin between
+revisions, RMS within 1%, and complete, non-silent, unclipped output. PCM bytes
+can differ because synthesizer scheduling changes the render alignment.
+
+Physical acceptance still requires the signed benchmark app above. Build and
+run the same Release revision on an iPhone, cool the device to nominal thermal
+state, then tap **Run LS and F136 benchmark**. Save the complete report. Run
+again after sustained engine playback has warmed the device; record whether the
+start is nominal/fair/serious, ambient conditions and whether connected to power.
+Record LS and F136 min/median/max for both starts and repeat on the reference
+revision using the same phone and conditions. Keep the existing #6 `<0.7` gate;
+#16's proposed F136 cool `≤0.5` / warm `<0.7` targets require owner confirmation.
+Host and Simulator timings do not establish physical acceptance.

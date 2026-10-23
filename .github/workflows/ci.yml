@@ -28,5 +28,8 @@ jobs:
       - name: Build package
         run: swift build -c release
 
+      - name: Check Release force guard
+        run: bash swift/Tests/check_force_guard.sh
+
       - name: Test package
         run: swift test -c release
