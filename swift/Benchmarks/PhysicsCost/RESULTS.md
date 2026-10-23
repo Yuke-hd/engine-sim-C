@@ -3,14 +3,14 @@
 Reference: `2517ebf2cfb9f04cca14c505d886fe332132a1ac`. Candidate: this PR.
 Measured 2026-10-23 on the macOS arm64 host, Release, both cores reporting
 10,000 Hz at 3000 RPM. One 0.5 s settling render and one discarded 3 s warm-up,
-then five timed 3 s renders per profile. Each revision ran sequentially.
-Simulator playback tests also ran on this host, so these are diagnostic
-measurements with scheduling noise, not physical iPhone acceptance evidence.
+then five timed 3 s renders per profile. Each revision ran sequentially after local
+Simulator tests and package builds completed. These are host diagnostics,
+not physical iPhone acceptance evidence.
 
 | Profile | Reference min/median/max | Candidate min/median/max | Median reduction |
 | --- | --- | --- | --- |
-| LS V8 | 0.495849 / 0.508223 / 0.520139 | 0.460987 / 0.474478 / 0.683672 | 6.6% |
-| F136 V8 | 0.489860 / 0.491610 / 0.493767 | 0.446817 / 0.450873 / 0.461356 | 8.3% |
+| LS V8 | 0.488855 / 0.491048 / 0.493528 | 0.447203 / 0.449157 / 0.453045 | 8.5% |
+| F136 V8 | 0.486540 / 0.491862 / 0.517622 | 0.444644 / 0.447314 / 0.449765 | 9.1% |
 
 An earlier pass gave LS median 0.502508 → 0.447006 and F136
 0.498302 → 0.444590. O3 + ThinLTO alone was neutral; defining NDEBUG
