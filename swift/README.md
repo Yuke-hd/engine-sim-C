@@ -71,7 +71,9 @@ warm-up render, and times five 3-second offline renders. It reports each
 compute/audio ratio (wall-clock compute duration divided by rendered audio
 duration) with the min, median and max. The gate is on the F136 median: it
 passes only when every timed F136 buffer is complete, non-silent and unclipped
-and the median ratio is strictly below 0.7. The max is shown but not gated, and
+and the median ratio is strictly below 0.7. Each result prints the frequency the
+core reports (`engine_sim_simulation_frequency`), and the gate also requires the
+F136 core to report the 10 kHz default. The max is shown but not gated, and
 the LS result is informational. The margin at 10 kHz is thin and device heat
 raises the ratios by about 0.06, so the report prints `ProcessInfo` thermal state
 before and after the gate runs and says whether it was a cool (nominal) or warm

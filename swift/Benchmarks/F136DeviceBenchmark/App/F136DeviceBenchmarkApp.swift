@@ -5,6 +5,7 @@ import UIKit
 
 private enum Benchmark {
     /// The gate runs at the production default: `engine_sim_create(profile, 0)`.
+    /// Reports print the frequency each core reports, not this constant.
     static let simulationFrequency = Int(ENGINE_SIM_DEFAULT_FREQUENCY)
     /// Informational only, measured after the gate: 4000 Hz is the live demo's choice.
     static let referenceFrequencies = [1_000, 4_000]
@@ -22,6 +23,8 @@ private enum Benchmark {
         let name: String
         let ratios: [Double]
         let measuredRPM: Double
+        /// Reported by the core (`engine_sim_simulation_frequency`), 0 if creation failed.
+        let simulationFrequency: Int
         let validAudio: Bool
         let error: String?
 
@@ -32,7 +35,8 @@ private enum Benchmark {
     /// `frequency` 0 selects ENGINE_SIM_DEFAULT_FREQUENCY.
     static func measure(_ profile: EngineSimProfile, name: String, frequency: Int = 0) -> Measurement {
         func failed(_ error: String) -> Measurement {
-            Measurement(name: name, ratios: [], measuredRPM: 0, validAudio: false, error: error)
+            Measurement(name: name, ratios: [], measuredRPM: 0, simulationFrequency: 0,
+                        validAudio: false, error: error)
         }
         guard let core = engine_sim_create(profile, Int32(frequency)) else {
             return failed("creation failed")
@@ -60,6 +64,7 @@ private enum Benchmark {
             ratios.append(elapsed / (Double(max(rendered, 1)) / Double(sampleRate)))
         }
         return Measurement(name: name, ratios: ratios, measuredRPM: engine_sim_rpm(core),
+                           simulationFrequency: Int(engine_sim_simulation_frequency(core)),
                            validAudio: validAudio, error: nil)
     }
 
@@ -79,7 +84,8 @@ private enum Benchmark {
         if let error = measurement.error { return "\(measurement.name): \(error)" }
         let sorted = measurement.sorted
         return "\(measurement.name): min \(format(sorted.first!))  median \(format(measurement.median))  " +
-            "max \(format(sorted.last!))\(measurement.validAudio ? "" : "  (audio invalid)")"
+            "max \(format(sorted.last!))  (core \(measurement.simulationFrequency) Hz)" +
+            (measurement.validAudio ? "" : "  (audio invalid)")
     }
 
     static func describe(_ measurement: Measurement) -> String {
@@ -87,6 +93,7 @@ private enum Benchmark {
         let sorted = measurement.sorted
         return """
         \(measurement.name) @ \(Int(targetRPM)) RPM (measured \(Int(measurement.measuredRPM.rounded())) RPM)
+          simulation (core-reported): \(measurement.simulationFrequency) Hz
           audio valid (complete, non-silent, unclipped): \(measurement.validAudio)
           compute/audio ratios: \(measurement.ratios.map(format).joined(separator: " "))
           min \(format(sorted.first!))  median \(format(measurement.median))  max \(format(sorted.last!))
@@ -110,12 +117,15 @@ private enum Benchmark {
             }
         }
         let passes = f136.error == nil && f136.validAudio && f136.median < limit
+            && f136.simulationFrequency == simulationFrequency
         let maxRatio = f136.sorted.last.map(format) ?? "n/a"
         return """
         Device: \(device) (\(system)); build: \(configuration)
-        Simulation: \(simulationFrequency) Hz (production default); audio: \(sampleRate) Hz mono PCM16
+        Simulation: default requested (0 = ENGINE_SIM_DEFAULT_FREQUENCY, \(simulationFrequency) Hz), \
+        core-reported per result below; audio: \(sampleRate) Hz mono PCM16
         Per profile: 1 discarded warm-up + \(timedRuns) timed \(audioSeconds) s renders
-        Gate: F136 V8 median compute/audio ratio < \(format(limit)) (max is reported, not gated)
+        Gate: F136 V8 median compute/audio ratio < \(format(limit)) at \(simulationFrequency) Hz \
+        (max is reported, not gated)
         Thermal state: \(thermalBefore) before, \(thermalAfterGate) after the gate runs \
         (\(thermalBefore == "nominal" ? "cool" : "warm") start)
 
