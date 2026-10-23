@@ -6,9 +6,9 @@ The repository root [`Package.swift`](../Package.swift) builds reusable engine s
 | --- | --- | --- |
 | `EngineSim` | `EngineSimCore` | Convenience library name for the C API |
 | `EngineSimCore` | `EngineSimCore` | Opaque C handle and controls in [`EngineSimCore.h`](include/EngineSimCore.h) |
-| `EngineSound` | `EngineSound`, `EngineSoundRing` | Swift [`EngineSoundSource`](../Sources/EngineSound/EngineSoundSource.swift) protocol, [`EngineSoundPlayer`](../Sources/EngineSound/EngineSoundPlayer.swift), and `ToneSource`; `EngineSoundRing` is its internal C ring target |
+| `EngineSound` | `EngineSound`, `EngineSoundRing` | Swift [`EngineSoundSource`](../Sources/EngineSound/EngineSoundSource.swift) protocol, [`EngineSoundPlayer`](../Sources/EngineSound/EngineSoundPlayer.swift) with `AudioSessionMixPolicy` and `EngineSoundPlayerError`, [`ToneSource`](../Sources/EngineSound/ToneSource.swift), and the single-producer/single-consumer [`RingBuffer`](../Sources/EngineSound/RingBuffer.swift); `EngineSoundRing` is its internal C ring target |
 
-`EngineSimCore` compiles the selected `src/` simulator and synthesizer files, the pinned `simple-2d-constraint-solver` source, and the C++ bridge in `swift/`. The bridge creates one of two engine profiles, drives physics on the calling thread, and reads audio from a native synthesizer thread. The `EngineSound` target supplies a player and neutral source protocol. It does not wrap the C handle: a host source owns that adapter. Tests are in `swift/Tests/EngineSimCoreTests`, `swift/Tests/EngineSoundTests`, and `swift/Tests/EngineSoundProfileTests`.
+`EngineSimCore` compiles the selected `src/` simulator and synthesizer files, the pinned `simple-2d-constraint-solver` source, and the C++ bridge in `swift/`. The bridge creates one of two engine profiles, drives physics on the calling thread, and reads audio from a native synthesizer thread. The `EngineSound` target supplies a player and neutral source protocol. It does not wrap the C handle: a host source owns that adapter. The player's internal [`CrossfadeMixer`](../Sources/EngineSound/CrossfadeMixer.swift) applies its fades and output headroom. [`BRIDGE.md`](BRIDGE.md) records the bridge's native lifecycle fixes and firing-order decisions.
 
 ## Build and integrate
 
@@ -19,7 +19,25 @@ git submodule update --init dependencies/submodules/simple-2d-constraint-solver
 swift test
 ```
 
-Add the checkout as a local Swift package (or a Git submodule) and link the `EngineSim`/`EngineSimCore` product for the C API; link `EngineSound` for playback or its Swift source protocol. `Package.swift` uses the C++ compiler flag `-fdelayed-template-parsing`, so SwiftPM cannot use this package as a versioned remote dependency. The other repository submodules are not needed by these targets. The normal `swift test` run skips the 40-second render benchmark; set `ENGINE_SIM_BENCHMARK=1` to opt in. The SwiftPM iPhone benchmark is skipped; use the signed device host below for the physical result.
+Add the checkout as a local Swift package (or a Git submodule) and link the `EngineSim`/`EngineSimCore` product for the C API; link `EngineSound` for playback or its Swift source protocol. `Package.swift` uses the C++ compiler flag `-fdelayed-template-parsing`, so SwiftPM cannot use this package as a versioned remote dependency. The other repository submodules are not needed by these targets.
+
+## Tests
+
+`swift test` runs three test targets:
+
+- `swift/Tests/EngineSimCoreTests`: C API controls, bounds and invalid handles (`ControlAPITests`), LS rendering at a held 3000 RPM (`LsV8RenderTests`), and F136 creation, bounds, LS/F136 replacement, cleanup and firing-order output at 3000 and 6000 RPM (`F136V8Tests`). The 40-second real-time-factor benchmark is skipped unless `ENGINE_SIM_BENCHMARK=1` is set in the test process environment.
+- `swift/Tests/EngineSoundTests`: ring buffer ordering, underrun and overrun behavior on every platform; `ToneSource` playback, source switching, shared session policy and a 60-second underrun check only on iOS.
+- `swift/Tests/EngineSoundProfileTests`: `testLsToF136CrossfadeHasNoClick` feeds offline LS and F136 renders through the player's cross-fade mixer at the splice with the largest level jump, and bounds every output step to what a linear 20 ms fade can add to the sources' own steps; an abrupt switch fails that bound. `testPlayerCrossfadesFromLsToF136AndReleasesOldCore` switches a live `EngineSoundPlayer` between sources that retain their cores and checks audio consumption, underruns, non-silent sources and release of the old core. It runs only on an iOS Simulator.
+
+On macOS, the iOS-only tests report as skipped. Run them on a Simulator with:
+
+```sh
+xcrun simctl list devices available
+xcodebuild test -scheme EngineSim-Package \
+  -destination 'platform=iOS Simulator,id=<available-device-id>' CODE_SIGNING_ALLOWED=NO
+```
+
+`bash swift/Tests/check_bridge_leaks.sh` (macOS) builds the standalone `BridgeLifecycle` and `ThreadStartFailure` probes against the package objects and runs `leaks --atExit` on them. Neither SwiftPM nor the Simulator measures physical render throughput; use the device benchmark below.
 
 `bash swift/Tests/check_convolution_filter.sh` is not part of `swift test`; run
 it after changing `src/convolution_filter.cpp`. It builds
@@ -66,7 +84,19 @@ engines as reference lines only; they are not gated. Only 3000 RPM is measured:
 at 1000 Hz simulation, 1000 RPM, and 6000/7500 RPM (LS) or 8500 RPM (F136), trip
 the `combustion_chamber.cpp` assertion. A Simulator
 run can check that the app builds, but only the signed physical-iPhone result
-satisfies this acceptance gate.
+satisfies this acceptance gate. That physical result has not yet been recorded.
+
+### Known limitation: 1000 Hz simulation
+
+At 1000 Hz, debug renders of both profiles near idle and redline (1000 and
+8500 RPM for F136, 1000 and 7500 RPM for LS) produce a NaN or infinite
+cylinder force and stop on `assert(false)` in `src/combustion_chamber.cpp`
+(`CombustionChamber::apply`). Release builds compile the assertion out, so the
+invalid value can reach the audio output. The same RPMs render cleanly at 2000,
+5000 and 10,000 Hz. The benchmark and `EngineSoundProfileTests` use 1000 Hz only
+at 3000 RPM, so a benchmark PASS does not validate 1000 Hz across a profile's
+reported RPM range. Keep the default 10,000 Hz (pass 0) unless a lower rate has
+been checked over the RPMs the host will request.
 
 The app's **Listen** section plays the LS V8 or F136 V8 live through the device
 speaker with `EngineSoundPlayer`. Pick an idle RPM (1000, 2000 or 3000) and an
@@ -195,14 +225,28 @@ synthesizer thread. A source that owns a handle must outlive every render call.
 
 ### Playback ownership
 
-`EngineSoundPlayer.start(_:policy:)` starts a worker that renders mono PCM16
-from the source into a ring buffer; the device audio callback only drains the
-ring. The default iOS session policy ducks other audio; `.mixWithOthers` is
-also available. `underrunCount` and `consumedFrameCount` report playback
-status. `start` can fail on an invalid sample rate, allocation, or audio engine
-startup; `switchSource(to:)` requires the same sample rate as the active source.
+`EngineSoundPlayer.start(_:policy:)` stops any current playback, then starts a
+producer thread that renders 256-frame blocks of mono PCM16 from the source
+into an 8192-frame ring buffer. It prebuffers 2048 frames before connecting
+the device; the audio callback only drains the ring and copies each sample to
+both output channels. The default policy, `.duckOthers`, ducks other audio on
+iOS; `.mixWithOthers` mixes with it. Players in one process share the
+`AVAudioSession`: it stays active, and ducks while any active player asked to
+duck, until the last player stops. On macOS the policy is ignored.
 
-`switchSource(to:)` crossfades over 20 ms. The player retains both the old
+The producer fades output in over 20 ms on start and out over 20 ms on `stop()`,
+and scales every sample by 0.8 for headroom. A short or negative
+`render(into:)` result is padded with silence; the player does not report it.
+`underrunCount` and `consumedFrameCount` report the ring's playback status.
+
+`start` throws `EngineSoundPlayerError.invalidSampleRate` unless the source's
+`sampleRate` is finite and within 8,000…192,000 Hz, and `.allocationFailed`
+if the ring cannot be allocated. It rethrows `AVAudioSession` errors on iOS and
+`AVAudioEngine.start()` errors after releasing the session. `switchSource(to:)`
+throws `.incompatibleSampleRate` unless the new source has the active source's
+sample rate; with no active playback it calls `start` with the default policy.
+
+`switchSource(to:)` crossfades linearly over 20 ms. The player retains both the old
 source and its core until the fade completes, even if the caller drops its
 reference. `stop()` ends the worker before releasing its source. Let source
 ownership destroy the core after the player has finished; do not separately

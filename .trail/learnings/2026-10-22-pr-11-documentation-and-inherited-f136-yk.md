@@ -5,12 +5,14 @@ date: 2026-10-22
 branch: codex/gh-7-swift-package-docs
 touches:
   - swift/README.md
-  - swift/Tests/EngineSimCoreTests/F136V8Tests.swift
+  - swift/Benchmarks/F136DeviceBenchmark/App/F136DeviceBenchmarkApp.swift
+  - src/combustion_chamber.cpp
 ---
 
 ## Decided
 - PR #11 changes only package documentation and notices. The new `swift/README.md` product/target table names `EngineSimCore`; it does not change the F136 bank/wire angles, firing order, or source implementation. `trail check` interpreting that prose as a cylinder-mapping change is a false positive.
-- The existing `F136V8Tests.testIPhoneRenderBenchmark` remains an explicit `XCTSkip` because physical-device execution requires a host app and matching signing/provisioning. PR #11 neither removes nor reenables that test; `trail check` reports inherited #6 branch content.
+- The physical-iPhone F136 gate is the signed `swift/Benchmarks/F136DeviceBenchmark` host app, not a SwiftPM XCTest; the base removed the skipped `testIPhoneRenderBenchmark`. README mentions of XCTest on iPhone and the Simulator `xcodebuild test` command restate that limit and do not reintroduce `ENGINE_SOUND_PLAYBACK=1`, so `trail check` flags on `swift/README.md:1` are false positives.
+- At 1000 Hz a debug render of either profile at 1000 RPM (and F136 8500 / LS 7500 RPM) hits `assert(false)` at `src/combustion_chamber.cpp:417` (NaN/Inf force); 2000, 5000 and 10000 Hz render cleanly. Reproduced with a probe linked against the debug `EngineSimCore` objects. README documents it as a known limitation; it predates #10.
 
 ## Watch out
 - Preserve the F136 mapping and the host/provisioning limitation recorded in the existing F136 source-port learning. Reassess the hardware benchmark only when a signed physical-iPhone host is available.
