@@ -25,8 +25,8 @@ Add the checkout as a local Swift package (or a Git submodule) and link the `Eng
 
 `swift test` runs three test targets:
 
-- `swift/Tests/EngineSimCoreTests`: C API controls, bounds and invalid handles (`ControlAPITests`), LS rendering at a held 3000 RPM (`LsV8RenderTests`), and F136 creation, bounds, LS/F136 replacement, cleanup and firing-order output at 3000 and 6000 RPM (`F136V8Tests`). The 40-second real-time-factor benchmark is skipped unless `ENGINE_SIM_BENCHMARK=1` is set in the test process environment.
-- `swift/Tests/EngineSoundTests`: ring buffer ordering, underrun and overrun behavior on every platform; `ToneSource` playback, source switching, shared session policy and a 60-second underrun check only on iOS.
+- `swift/Tests/EngineSimCoreTests`: C API controls, bounds and invalid handles (`ControlAPITests`), LS rendering at a held 3000 RPM (`LsV8RenderTests`), and F136 creation, bounds, LS/F136 replacement, cleanup and firing-order output at 3000 and 6000 RPM (`F136V8Tests`). The 40-second real-time-factor benchmark is skipped unless `ENGINE_SIM_BENCHMARK` is set in the test process environment; any value, including `0` or an empty string, runs it.
+- `swift/Tests/EngineSoundTests`: ring buffer ordering, underrun and overrun behavior, and rejection of an extreme finite sample rate by `EngineSoundPlayer.start` (`PlaybackTests.testExtremeFiniteSampleRateIsRejected`) on every platform; `ToneSource` playback, source switching, shared session policy and a 60-second underrun check only on iOS.
 - `swift/Tests/EngineSoundProfileTests`: `testLsToF136CrossfadeHasNoClick` feeds offline LS and F136 renders through the player's cross-fade mixer at the splice with the largest level jump, and bounds every output step to what a linear 20 ms fade can add to the sources' own steps; an abrupt switch fails that bound. `testPlayerCrossfadesFromLsToF136AndReleasesOldCore` switches a live `EngineSoundPlayer` between sources that retain their cores and checks audio consumption, underruns, non-silent sources and release of the old core. It runs only on an iOS Simulator.
 
 On macOS, the iOS-only tests report as skipped. Run them on a Simulator with:
