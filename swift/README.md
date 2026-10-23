@@ -326,7 +326,11 @@ assertions stay enabled. Solver tolerance, fluid substep count, default frequenc
 and public API remain unchanged. Run `bash swift/Tests/check_force_guard.sh`
 to verify injected NaN and positive/negative infinity against the Release core.
 
-For host diagnostics, run one revision at a time with no other builds or tests:
+For host diagnostics, run one revision at a time with no other builds or tests.
+For the `2517ebf` reference checkout, copy the candidate’s
+`swift/Benchmarks/PhysicsCost/` directory into the same location in that checkout
+(the harness did not exist there), initialize its solver submodule, and keep its
+`Package.swift` and engine sources unchanged. Use separate output prefixes:
 
 ```sh
 bash swift/Benchmarks/PhysicsCost/run.sh /tmp/reference > /tmp/reference.txt

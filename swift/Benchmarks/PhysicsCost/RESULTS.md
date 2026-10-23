@@ -14,7 +14,10 @@ not physical iPhone acceptance evidence.
 
 An earlier pass gave LS median 0.502508 → 0.447006 and F136
 0.498302 → 0.444590. O3 + ThinLTO alone was neutral; defining NDEBUG
-accounts for the measurable improvement. No physics formulas, iteration limits,
+accounts for most of the measurable improvement. A follow-up O2/NDEBUG-only
+probe measured medians 0.463429 (LS) and 0.451736 (F136), compared with the
+combined candidate’s 0.449157/0.447314; the combined flags are retained.
+No physics formulas, iteration limits,
 fluid substeps, or defaults changed.
 
 ## Render comparison
