@@ -6,7 +6,7 @@ The repository root [`Package.swift`](../Package.swift) builds reusable engine s
 | --- | --- | --- |
 | `EngineSim` | `EngineSimCore` | Convenience library name for the C API |
 | `EngineSimCore` | `EngineSimCore` | Opaque C handle and controls in [`EngineSimCore.h`](include/EngineSimCore.h) |
-| `EngineSound` | `EngineSound`, `EngineSoundRing` | Swift [`EngineSoundSource`](../Sources/EngineSound/EngineSoundSource.swift) protocol, [`EngineSoundPlayer`](../Sources/EngineSound/EngineSoundPlayer.swift) with `AudioSessionMixPolicy` and `EngineSoundPlayerError`, [`ToneSource`](../Sources/EngineSound/ToneSource.swift), and the single-producer/single-consumer [`RingBuffer`](../Sources/EngineSound/RingBuffer.swift); `EngineSoundRing` is its internal C ring target |
+| `EngineSound` | `EngineSound`, `EngineSoundRing` | Swift [`EngineSoundSource`](../Sources/EngineSound/EngineSoundSource.swift) protocol, [`EngineSoundPlayer`](../Sources/EngineSound/EngineSoundPlayer.swift) with `AudioSessionMixPolicy` and `EngineSoundPlayerError`, the injectable [`EngineSoundSession`](../Sources/EngineSound/EngineSoundSession.swift) with its iOS `IOSAudioSession` adapter and thermal types, [`RPMFollower`](../Sources/EngineSound/RPMFollower.swift), [`ToneSource`](../Sources/EngineSound/ToneSource.swift), and the single-producer/single-consumer [`RingBuffer`](../Sources/EngineSound/RingBuffer.swift); `EngineSoundRing` is its internal C ring target |
 
 `EngineSimCore` compiles the selected `src/` simulator and synthesizer files, the pinned `simple-2d-constraint-solver` source, and the C++ bridge in `swift/`. The bridge creates one of two engine profiles, drives physics on the calling thread, and reads audio from a native synthesizer thread. The `EngineSound` target supplies a player and neutral source protocol. It does not wrap the C handle: a host source owns that adapter. The player's internal [`CrossfadeMixer`](../Sources/EngineSound/CrossfadeMixer.swift) applies its fades and output headroom. [`BRIDGE.md`](BRIDGE.md) records the bridge's native lifecycle fixes and firing-order decisions.
 
@@ -26,7 +26,7 @@ Add the checkout as a local Swift package (or a Git submodule) and link the `Eng
 `swift test` runs three test targets:
 
 - `swift/Tests/EngineSimCoreTests`: C API controls, bounds and invalid handles (`ControlAPITests`), LS rendering at a held 3000 RPM (`LsV8RenderTests`), and F136 creation, bounds, LS/F136 replacement, cleanup and firing-order output at 3000 and 6000 RPM (`F136V8Tests`). The 40-second real-time-factor benchmark is skipped unless `ENGINE_SIM_BENCHMARK` is set in the test process environment; any value, including `0` or an empty string, runs it.
-- `swift/Tests/EngineSoundTests`: ring buffer ordering, underrun and overrun behavior, and rejection of an extreme finite sample rate by `EngineSoundPlayer.start` (`PlaybackTests.testExtremeFiniteSampleRateIsRejected`) on every platform; `ToneSource` playback, source switching, shared session policy and a 60-second underrun check only on iOS.
+- `swift/Tests/EngineSoundTests`: ring buffer ordering, underrun and overrun behavior, and rejection of an extreme finite sample rate by `EngineSoundPlayer.start` (`PlaybackTests.testExtremeFiniteSampleRateIsRejected`), and `RPMFollowerTests` (interpolation, clamping, stale/disconnected fades, age expiry and derived throttle) on every platform; `ToneSource` playback, source switching, shared session policy, a 60-second underrun check, and `SessionTests` (interruption, route-change, thermal and playback-failure handling through an injected session) only on iOS.
 - `swift/Tests/EngineSoundProfileTests`: `testLsToF136CrossfadeHasNoClick` feeds offline LS and F136 renders through the player's cross-fade mixer at the splice with the largest level jump, and bounds every output step to what a linear 20 ms fade can add to the sources' own steps; an abrupt switch fails that bound. `testPlayerCrossfadesFromLsToF136AndReleasesOldCore` switches a live `EngineSoundPlayer` between sources that retain their cores and checks audio consumption, underruns, non-silent sources and release of the old core. It runs only on an iOS Simulator.
 
 On macOS, the iOS-only tests report as skipped. Run them on a Simulator with:
@@ -173,7 +173,7 @@ Nonfinite RPM/throttle values are ignored. `engine_sim_create` returns null for 
 
 ## Supplying fresh inputs
 
-The host decides whether its latest RPM and throttle readings are fresh. For each producer update, pass the latest **finite** values through the independent setters. If the source becomes stale or unavailable, apply the host's neutral policy explicitly, for example target RPM 0, throttle 0, and ignition off. The package has no clock, freshness rule, or automatic stale-input timeout. It reports the profile bounds, actual RPM, simulation frequency, and render count so the host can show status or detect a short render without importing any app-specific types.
+The host decides whether its latest RPM and throttle readings are fresh. For each producer update, pass the latest **finite** values through the independent setters. If the source becomes stale or unavailable, apply the host's neutral policy explicitly, for example target RPM 0, throttle 0, and ignition off. The player and C API have no clock, freshness rule, or automatic stale-input timeout; the optional `RPMFollower` (below) applies one only when the host feeds it timestamped readings. The package reports the profile bounds, actual RPM, simulation frequency, and render count so the host can show status or detect a short render without importing any app-specific types.
 
 ```swift
 import EngineSimCore
@@ -276,29 +276,32 @@ the same producer thread. Calling the C setters on a live source from an
 unsynchronized telemetry callback races the worker. Prepare replacement
 sources before switching them into the player.
 
-## Stacked work not in this branch
+### Session, route and thermal handling
 
-This README describes the package as of the F136 branch (PR #10) that this
-documentation is stacked on. Two approved sibling PRs, also based on the
-playback branch (PR #9), are not merged and are not part of this tree, so their
-APIs are not available here yet:
+`EngineSoundPlayer(session:)` takes an optional `EngineSoundSession`; on iOS
+the default `IOSAudioSession` configures the shared playback session and
+reports interruptions, output route changes (`EngineSoundRouteChangeReason`)
+and thermal state (`EngineSoundThermalState`). Removing headphones, Bluetooth
+or CarPlay pauses playback until the host calls `start` again. Thermal
+`.serious` asks an `EngineSoundThermalControllable` source, on the producer
+thread, for half the simulation frequency; `.critical` stops playback until it
+improves. Automatic resume failures are reported through `lastPlaybackFailure`
+and `onPlaybackFailure` (called on the main queue). [`BRIDGE.md`](BRIDGE.md)
+documents the full lifecycle rules.
 
-- PR #12 (issue #3) adds `RPMFollower`, which turns timestamped
-  `RPMFollowerInput` readings (RPM, `RPMFreshness`, age, accelerator throttle)
-  into `RPMFollowerOutput` target RPM, throttle and gain. It interpolates new
-  readings and fades gain to silence when a reading is invalid, stale or older
-  than `maxReadingAge` (0.5 s by default).
-- PR #14 (issue #5) adds an injectable `EngineSoundSession` (with the iOS
-  `IOSAudioSession` adapter) and `EngineSoundPlayer(session:)`. The player then
-  handles interruptions, output route changes (`EngineSoundRouteChangeReason`;
-  removing headphones, Bluetooth or CarPlay pauses until the host calls `start`
-  again) and thermal state (`EngineSoundThermalState`; `.serious` asks an
-  `EngineSoundThermalControllable` source for half the simulation frequency,
-  `.critical` stops playback until it improves). Automatic resume failures are
-  reported through `lastPlaybackFailure` and `onPlaybackFailure`. Its
-  `swift/BRIDGE.md` section documents the details.
+## Following live RPM
 
-These sections will be folded into this README once both PRs are merged.
+`RPMFollower` turns timestamped `RPMFollowerInput` readings (RPM,
+`RPMFreshness`, age, accelerator throttle, sample time) into
+`RPMFollowerOutput` target RPM, throttle and gain for one playback instant.
+Create it with the profile's RPM range, feed readings with `update(_:)`, and
+evaluate it with `output(at:)` on the same monotonic clock. A new reading
+interpolates over `interpolationDuration` (0.1 s by default). An invalid,
+stale or disconnected reading, or one older than `maxReadingAge` (0.5 s by
+default), resets the target to the profile minimum and fades gain to silence
+over `fadeDuration` (0.2 s). When no accelerator throttle is supplied, throttle
+is derived from the RPM rate (`isThrottleDerived`). The host applies the
+output to its source and its own gain stage.
 
 ## Source and licenses
 
