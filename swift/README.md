@@ -345,9 +345,14 @@ seconds of mono PCM16 after two seconds settling for both profiles at
 1500/3000/5000 RPM and throttle 0/0.5/1. `--timing-only` omits the PCM sweep.
 Comparison uses the final 65,536 samples with a Hann window (0.673 Hz bins),
 reports firing-order peaks in ±10% of RPM/15 and dominant peaks over 40–600 Hz,
-plus whole-render RMS, sample peak and clipping counts. The regression tolerance
-is firing peaks within 3% of expected, dominant peaks within one FFT bin between
-revisions, RMS within 1%, and complete, non-silent, unclipped output. PCM bytes
+plus whole-render RMS, sample peak and clipping counts. Before the Hann FFT,
+the capture mean is removed. Relative firing power is the sum of power within
+±2 bins of RPM/15 divided by total FFT power. The regression tolerance is firing
+peaks within 3% of expected and within one bin between revisions, relative firing
+power within 5%, dominant peaks within one bin, RMS within 1%, and complete,
+non-silent, unclipped output. Run `python3 swift/Benchmarks/PhysicsCost/check_comparator.py`
+to verify the comparator rejects firing attenuation and a two-bin frequency shift
+even when RMS and the dominant peak stay stable. PCM bytes
 can differ because synthesizer scheduling changes the render alignment.
 
 Physical acceptance still requires the signed benchmark app above. Build and

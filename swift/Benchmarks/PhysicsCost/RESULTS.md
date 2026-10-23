@@ -22,33 +22,38 @@ fluid substeps, or defaults changed.
 
 ## Render comparison
 
-The root accepted tolerance: RMS ±1%, firing peak within 3% of RPM/15,
+The root accepted tolerance: RMS ±1%, firing peak within 3% of RPM/15 and
+within one FFT bin between revisions, relative firing power within 5%,
 dominant 40–600 Hz peak within one FFT bin (0.673 Hz), no silence/clipping.
 Both profiles at 1500/3000/5000 RPM and throttle 0/0.5/1 passed. Each capture
 contains exactly 88,200 frames; peak sample magnitude ranges 6232–25656.
 The reference and candidate firing and dominant frequency bins match in all
-18 cases. Maximum absolute RMS change is 0.310%.
+18 cases. Maximum absolute RMS change is 0.310%. Mean-subtracted Hann FFT
+relative firing power (±2 bins around expected RPM/15, divided by total power)
+changes from −1.943% to +0.265%, within the agreed ±5% bound. The comparator’s
+three regressions pass: unchanged output succeeds; attenuating the firing band
+with stable RMS/dominant peak and shifting it two bins are rejected.
 
-| Profile | RPM | Throttle | Firing Hz | Dominant Hz | RMS change | Candidate peak |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| LS | 1500 | 0 | 100.264 | 437.393 | +0.000% | 20637 |
-| LS | 1500 | 0.5 | 100.264 | 62.581 | +0.130% | 20516 |
-| LS | 1500 | 1 | 100.264 | 62.581 | +0.310% | 20729 |
-| LS | 3000 | 0 | 199.855 | 399.710 | +0.000% | 19626 |
-| LS | 3000 | 0.5 | 199.855 | 199.855 | +0.000% | 24988 |
-| LS | 3000 | 1 | 199.855 | 199.855 | -0.205% | 25656 |
-| LS | 5000 | 0 | 333.092 | 458.253 | +0.000% | 21252 |
-| LS | 5000 | 0.5 | 333.092 | 458.253 | +0.000% | 20596 |
-| LS | 5000 | 1 | 333.092 | 125.162 | -0.126% | 22080 |
-| F136 | 1500 | 0 | 100.264 | 199.855 | +0.003% | 19950 |
-| F136 | 1500 | 0.5 | 100.264 | 100.264 | -0.005% | 6232 |
-| F136 | 1500 | 1 | 100.264 | 100.264 | +0.011% | 6277 |
-| F136 | 3000 | 0 | 199.855 | 199.855 | -0.006% | 20905 |
-| F136 | 3000 | 0.5 | 199.855 | 100.264 | +0.011% | 17862 |
-| F136 | 3000 | 1 | 199.855 | 100.264 | +0.011% | 17830 |
-| F136 | 5000 | 0 | 333.092 | 333.092 | -0.002% | 20329 |
-| F136 | 5000 | 0.5 | 333.092 | 166.882 | +0.011% | 19635 |
-| F136 | 5000 | 1 | 333.092 | 166.882 | -0.023% | 19208 |
+| Profile | RPM | Throttle | Firing Hz | Dominant Hz | RMS change | Firing power change | Candidate peak |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| LS | 1500 | 0 | 100.264 | 437.393 | +0.000% | +0.000% | 20637 |
+| LS | 1500 | 0.5 | 100.264 | 62.581 | +0.130% | -1.443% | 20516 |
+| LS | 1500 | 1 | 100.264 | 62.581 | +0.310% | -1.943% | 20729 |
+| LS | 3000 | 0 | 199.855 | 399.710 | +0.000% | +0.000% | 19626 |
+| LS | 3000 | 0.5 | 199.855 | 199.855 | +0.000% | +0.000% | 24988 |
+| LS | 3000 | 1 | 199.855 | 199.855 | -0.205% | -1.163% | 25656 |
+| LS | 5000 | 0 | 333.092 | 458.253 | +0.000% | +0.000% | 21252 |
+| LS | 5000 | 0.5 | 333.092 | 458.253 | +0.000% | +0.000% | 20596 |
+| LS | 5000 | 1 | 333.092 | 125.162 | -0.126% | +0.265% | 22080 |
+| F136 | 1500 | 0 | 100.264 | 199.855 | +0.003% | +0.019% | 19950 |
+| F136 | 1500 | 0.5 | 100.264 | 100.264 | -0.005% | +0.096% | 6232 |
+| F136 | 1500 | 1 | 100.264 | 100.264 | +0.011% | -0.003% | 6277 |
+| F136 | 3000 | 0 | 199.855 | 199.855 | -0.006% | -0.010% | 20905 |
+| F136 | 3000 | 0.5 | 199.855 | 100.264 | +0.011% | -0.129% | 17862 |
+| F136 | 3000 | 1 | 199.855 | 100.264 | +0.011% | +0.122% | 17830 |
+| F136 | 5000 | 0 | 333.092 | 333.092 | -0.002% | -0.004% | 20329 |
+| F136 | 5000 | 0.5 | 333.092 | 166.882 | +0.011% | -0.028% | 19635 |
+| F136 | 5000 | 1 | 333.092 | 166.882 | -0.023% | +0.108% | 19208 |
 
 ## Verification
 
