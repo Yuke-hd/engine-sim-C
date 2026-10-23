@@ -64,16 +64,21 @@ To collect the issue #6 result on a signed iPhone 12 Pro:
    and PASS or FAIL, into issue #6 or PR #10. Confirm the device model is iPhone 12 Pro in iOS
    Settings because the app displays the user-assigned device name.
 
-For the LS V8 baseline and then the F136 V8, the app holds 3000 RPM at 1000 Hz
-simulation and 44.1 kHz mono PCM16 output, settles for 0.5 seconds, discards one
-3-second warm-up render, and times five 3-second offline renders. It reports each
+For the LS V8 baseline and then the F136 V8, the app holds 3000 RPM at the
+production default simulation frequency (`ENGINE_SIM_DEFAULT_FREQUENCY`, 10 kHz)
+and 44.1 kHz mono PCM16 output, settles for 0.5 seconds, discards one 3-second
+warm-up render, and times five 3-second offline renders. It reports each
 compute/audio ratio (wall-clock compute duration divided by rendered audio
 duration) with the min, median and max. The gate is on the F136 median: it
 passes only when every timed F136 buffer is complete, non-silent and unclipped
 and the median ratio is strictly below 0.7. The max is shown but not gated, and
-the LS result is informational. Other RPMs are omitted because 1000 RPM, and
-6000/7500 RPM (LS) or 8500 RPM (F136), trip the `combustion_chamber.cpp`
-assertion at 1000 Hz simulation. A Simulator
+the LS result is informational. The margin at 10 kHz is thin and device heat
+raises the ratios by about 0.06, so the report prints `ProcessInfo` thermal state
+before and after the gate runs and says whether it was a cool (nominal) or warm
+start. After the gate, the app prints 1000 Hz and 4000 Hz min/median/max for both
+engines as reference lines only; they are not gated. Only 3000 RPM is measured:
+at 1000 Hz simulation, 1000 RPM, and 6000/7500 RPM (LS) or 8500 RPM (F136), trip
+the `combustion_chamber.cpp` assertion. A Simulator
 run can check that the app builds, but only the signed physical-iPhone result
 satisfies this acceptance gate.
 
@@ -82,9 +87,9 @@ speaker with `EngineSoundPlayer`. Pick an idle RPM (1000, 2000 or 3000) and an
 engine; switching either cross-fades to a new core. While playing, the throttle
 slider (0-1) drives `engine_sim_set_throttle` and moves the dyno-held RPM from
 idle toward 6500 RPM at up to 3000 RPM/s, without re-creating the core. Live
-playback simulates at 4000 Hz, not the benchmark's 1000 Hz: at 1000 Hz low
-throttle and many RPMs trip the `combustion_chamber.cpp` assertion, which is
-compiled into Release builds. For headless runs through
+playback simulates at 4000 Hz, a demo choice rather than the 10 kHz gate
+setting: at 1000-2000 Hz low throttle and many RPMs trip the
+`combustion_chamber.cpp` assertion, which is compiled into Release builds. For headless runs through
 `xcrun devicectl device process launch --console`, set
 `DEVICECTL_CHILD_BENCHMARK_AUTORUN=1` to run the benchmark at launch, or
 `DEVICECTL_CHILD_LISTEN_SELFTEST=1` to sweep the throttle on each engine; both

@@ -4,10 +4,14 @@ import SwiftUI
 import UIKit
 
 private enum Benchmark {
-    static let simulationFrequency = 1_000
+    /// The gate runs at the production default: `engine_sim_create(profile, 0)`.
+    static let simulationFrequency = Int(ENGINE_SIM_DEFAULT_FREQUENCY)
+    /// Informational only, measured after the gate: 4000 Hz is the live demo's choice.
+    static let referenceFrequencies = [1_000, 4_000]
     static let sampleRate = 44_100
-    // Only 3000 RPM: at 1000 Hz simulation, 1000 RPM (both profiles), 6000 and
-    // 7500 RPM (LS) and 8500 RPM (F136) trip combustion_chamber.cpp's assertion.
+    // Only 3000 RPM: at 1000 Hz simulation (a reference line), 1000 RPM (both
+    // profiles), 6000 and 7500 RPM (LS) and 8500 RPM (F136) trip
+    // combustion_chamber.cpp's assertion.
     static let targetRPM = 3_000.0
     static let audioSeconds = 3
     static let timedRuns = 5
@@ -25,11 +29,12 @@ private enum Benchmark {
         var median: Double { sorted.isEmpty ? .infinity : sorted[sorted.count / 2] }
     }
 
-    static func measure(_ profile: EngineSimProfile, name: String) -> Measurement {
+    /// `frequency` 0 selects ENGINE_SIM_DEFAULT_FREQUENCY.
+    static func measure(_ profile: EngineSimProfile, name: String, frequency: Int = 0) -> Measurement {
         func failed(_ error: String) -> Measurement {
             Measurement(name: name, ratios: [], measuredRPM: 0, validAudio: false, error: error)
         }
-        guard let core = engine_sim_create(profile, Int32(simulationFrequency)) else {
+        guard let core = engine_sim_create(profile, Int32(frequency)) else {
             return failed("creation failed")
         }
         defer { engine_sim_destroy(core) }
@@ -60,6 +65,23 @@ private enum Benchmark {
 
     static func format(_ value: Double) -> String { String(format: "%.3f", value) }
 
+    static func thermalState() -> String {
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: "nominal"
+        case .fair: "fair"
+        case .serious: "serious"
+        case .critical: "critical"
+        @unknown default: "unknown"
+        }
+    }
+
+    static func summarize(_ measurement: Measurement) -> String {
+        if let error = measurement.error { return "\(measurement.name): \(error)" }
+        let sorted = measurement.sorted
+        return "\(measurement.name): min \(format(sorted.first!))  median \(format(measurement.median))  " +
+            "max \(format(sorted.last!))\(measurement.validAudio ? "" : "  (audio invalid)")"
+    }
+
     static func describe(_ measurement: Measurement) -> String {
         if let error = measurement.error { return "\(measurement.name): \(error)" }
         let sorted = measurement.sorted
@@ -77,15 +99,25 @@ private enum Benchmark {
         #else
         let configuration = "Release"
         #endif
+        // Heat shifts 10 kHz ratios by about 0.06, so record the thermal state.
+        let thermalBefore = thermalState()
         let baseline = measure(ENGINE_SIM_PROFILE_LS_V8, name: "LS V8 (baseline)")
         let f136 = measure(ENGINE_SIM_PROFILE_F136_V8, name: "F136 V8")
+        let thermalAfterGate = thermalState()
+        let references = referenceFrequencies.flatMap { frequency in
+            [(ENGINE_SIM_PROFILE_LS_V8, "LS V8"), (ENGINE_SIM_PROFILE_F136_V8, "F136 V8")].map {
+                summarize(measure($0.0, name: "\($0.1) @ \(frequency) Hz", frequency: frequency))
+            }
+        }
         let passes = f136.error == nil && f136.validAudio && f136.median < limit
         let maxRatio = f136.sorted.last.map(format) ?? "n/a"
         return """
         Device: \(device) (\(system)); build: \(configuration)
-        Simulation: \(simulationFrequency) Hz; audio: \(sampleRate) Hz mono PCM16
+        Simulation: \(simulationFrequency) Hz (production default); audio: \(sampleRate) Hz mono PCM16
         Per profile: 1 discarded warm-up + \(timedRuns) timed \(audioSeconds) s renders
         Gate: F136 V8 median compute/audio ratio < \(format(limit)) (max is reported, not gated)
+        Thermal state: \(thermalBefore) before, \(thermalAfterGate) after the gate runs \
+        (\(thermalBefore == "nominal" ? "cool" : "warm") start)
 
         \(describe(baseline))
 
@@ -93,6 +125,10 @@ private enum Benchmark {
 
         Result: \(passes ? "PASS" : "FAIL") (F136 median \(format(f136.median)) vs < \(format(limit)); \
         F136 max \(maxRatio))
+
+        Reference only, not gated (measured after the gate):
+        \(references.joined(separator: "\n"))
+        Thermal state at end: \(thermalState())
         """
     }
 }
@@ -170,9 +206,9 @@ private final class Listener: ObservableObject {
 
     static let ls = Engine(profile: ENGINE_SIM_PROFILE_LS_V8, name: "LS V8")
     static let f136 = Engine(profile: ENGINE_SIM_PROFILE_F136_V8, name: "F136 V8")
-    // Live playback simulates at 4000 Hz (the benchmark stays at 1000 Hz): at 1000 Hz
-    // low throttle and many RPMs trip combustion_chamber.cpp's NaN-force assertion,
-    // which is compiled in for Release. Throttle 0...1 sweeps between idle and 6500
+    // Live playback simulates at 4000 Hz, a demo choice (the gate runs at the 10 kHz
+    // default): at 1000-2000 Hz low throttle and many RPMs trip combustion_chamber.cpp's
+    // NaN-force assertion, which is compiled in for Release. Throttle 0...1 sweeps between idle and 6500
     // RPM at 4000 Hz without tripping it for either profile (checked on macOS).
     nonisolated static let simulationFrequency = 4_000
     nonisolated static let topRPM = 6_500.0
