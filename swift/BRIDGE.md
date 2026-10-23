@@ -5,7 +5,8 @@ slice for playback issue #2. Companion owns its `EngineSimSource` adapter; this
 package does not depend on Companion. `EngineSimCore` exports an opaque C handle,
 profile selection and independent RPM/throttle/ignition controls. New instances
 are silent until ignition is enabled. Invalid nonfinite controls are ignored;
-finite controls are clamped to RPM 0...8000 and throttle 0...1. PCM output is mono
+finite controls are clamped to the profile's RPM range (0...8000 LS,
+0...9000 F136) and throttle 0...1. PCM output is mono
 signed 16-bit at 44,100 Hz. `engine_sim_create_ls_v8` and `engine_sim_hold_rpm`
 remain available for existing clients.
 
@@ -60,6 +61,10 @@ submodule.
 Run `swift test` and `xcodebuild test -scheme EngineSim-Package -destination
 'platform=iOS Simulator,id=<available-device-id>' CODE_SIGNING_ALLOWED=NO`.
 Use `xcrun simctl list devices available` to select the simulator.
+After changing `src/convolution_filter.cpp`, also run
+`bash swift/Tests/check_convolution_filter.sh`; it checks the arm64 NEON dot
+product against a double-precision reference and, on Apple silicon with
+Rosetta, the x86_64 scalar fallback against the original float loop.
 
 On macOS, `bash swift/Tests/check_bridge_leaks.sh` builds a standalone native
 probe and runs `leaks --atExit` over 40 create/control/render/destroy cycles.

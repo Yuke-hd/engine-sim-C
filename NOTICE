@@ -1,0 +1,43 @@
+Third-party provenance and notices for the EngineSim Swift package
+===================================================================
+
+engine-sim
+----------
+Source: https://github.com/ange-yaghi/engine-sim
+Pinned upstream revision: 85f7c3b959a908ed5232ede4f1a4ac7eafe6b630
+Revision: https://github.com/ange-yaghi/engine-sim/commit/85f7c3b959a908ed5232ede4f1a4ac7eafe6b630
+License: MIT; full copyright and permission notice in LICENSE at this repository root (upstream copy: https://github.com/ange-yaghi/engine-sim/blob/85f7c3b959a908ed5232ede4f1a4ac7eafe6b630/LICENSE).
+
+The EngineSimCore target retains selected upstream src/*.cpp files explicitly listed in Package.swift and their include/ headers. It also uses the original assets/engines/atg-video-2/07_gm_ls.mr and assets/engines/atg-video-2/08_ferrari_f136_v8.mr as the source for the new swift/ls_v8_builder.cpp and swift/f136_v8_builder.cpp C++ ports. The new swift/ls_v8_impulse_response.cpp and swift/f136_v8_impulse_response.cpp embed bytes from assets/sound-library/smooth/smooth_39.wav and es/sound-library/new/mild_exhaust_reverb.wav respectively. These profile ports and embedded sounds retain the upstream engine-sim MIT notice.
+
+Relative to the pinned engine-sim revision, the retained upstream files changed for this package and bridge are include/constants.h, include/gas_system.h, include/units.h, src/connecting_rod.cpp, src/convolution_filter.cpp, src/engine.cpp, src/function.cpp, src/jitter_filter.cpp, src/piston_engine_simulator.cpp, src/simulator.cpp, and src/synthesizer.cpp. These changes support Clang compilation, native lifecycle cleanup, sound rendering, and a NEON dot product in the convolution filter on arm64; the original files and modifications remain covered by the engine-sim MIT license.
+
+simple-2d-constraint-solver
+---------------------------
+Source: https://github.com/ange-yaghi/simple-2d-constraint-solver
+Pinned submodule revision: e009f4ff1c9c4c5874e865e893cdb62e208fb2b3
+Revision: https://github.com/ange-yaghi/simple-2d-constraint-solver/commit/e009f4ff1c9c4c5874e865e893cdb62e208fb2b3
+Retained in EngineSimCore: dependencies/submodules/simple-2d-constraint-solver/src.
+No local changes are made to the pinned solver submodule. Its license is MIT; the full upstream notice follows and is also present in the initialized submodule at dependencies/submodules/simple-2d-constraint-solver/LICENSE.
+
+MIT License
+
+Copyright (c) 2022 Ange Yaghi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
