@@ -21,6 +21,12 @@ swift test
 
 Add the checkout as a local Swift package (or a Git submodule) and link the `EngineSim`/`EngineSimCore` product for the C API; link `EngineSound` for playback or its Swift source protocol. `Package.swift` uses the C++ compiler flag `-fdelayed-template-parsing`, so SwiftPM cannot use this package as a versioned remote dependency. The other repository submodules are not needed by these targets.
 
+`EngineSimCore` uses C++ `-O2` optimization in Debug as well as Release. The
+physics producer must render faster than the audio device consumes samples;
+unoptimized Debug physics cannot sustain live playback. The Swift player and
+host app retain their normal Debug settings. Optimized native code can make
+stepping through physics and inspecting local variables less predictable.
+
 ## Tests
 
 `swift test` runs three test targets:
@@ -36,6 +42,21 @@ xcrun simctl list devices available
 xcodebuild test -scheme EngineSim-Package \
   -destination 'platform=iOS Simulator,id=<available-device-id>' CODE_SIGNING_ALLOWED=NO
 ```
+
+To check the native producer with the live player's 256-sample requests:
+
+```sh
+ENGINE_SIM_BENCHMARK=1 swift test -c debug \
+  --filter LsV8RenderTests.testLiveBlockRenderingKeepsUpWithPlayback
+```
+
+This opt-in performance test holds 1000 RPM at the default 10 kHz simulation
+rate, settles for 0.5 seconds, and measures three seconds of audio both in
+256-sample blocks and in one bulk request. Both outputs must be complete and
+audible, and the live-size run must finish in less than three seconds. Run it
+on an otherwise idle machine; it measures that machine's throughput rather
+than guaranteeing performance on a phone. Verify live playback on the target
+device as well.
 
 `bash swift/Tests/check_bridge_leaks.sh` (macOS) builds the standalone `BridgeLifecycle` and `ThreadStartFailure` probes against the package objects and runs `leaks --atExit` on them. Neither SwiftPM nor the Simulator measures physical render throughput; use the device benchmark below.
 
