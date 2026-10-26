@@ -4,25 +4,48 @@
 
 LevelingFilter::LevelingFilter() {
     m_peak = 30000.0;
+    m_meanSquare = 0.0;
+    m_rmsCoefficient = 0.9995f;
     m_attenuation = 1.0;
     p_target = 30000.0;
     p_minLevel = 0.0;
     p_maxLevel = 1.0;
+    p_ratio = 1.0;
+    p_reference = 0.0;
+    p_detector = Detector::Peak;
 }
 
 LevelingFilter::~LevelingFilter() {
     /* void */
 }
 
+void LevelingFilter::setRmsTimeConstant(float seconds, float sampleRate) {
+    m_rmsCoefficient = std::exp(-1.0f / (seconds * sampleRate));
+}
+
 float LevelingFilter::f(float sample) {
-    m_peak = 0.999f * m_peak;
-    if (std::abs(sample) > m_peak) {
-        m_peak = std::abs(sample);
+    float level;
+    if (p_detector == Detector::Rms) {
+        m_meanSquare =
+            m_rmsCoefficient * m_meanSquare
+            + (1 - m_rmsCoefficient) * sample * sample;
+        level = std::sqrt(m_meanSquare);
+    }
+    else {
+        m_peak = 0.999f * m_peak;
+        if (std::abs(sample) > m_peak) {
+            m_peak = std::abs(sample);
+        }
+
+        level = m_peak;
     }
 
-    if (m_peak == 0) return 0;
+    if (level == 0) return 0;
 
-    const float raw_attenuation = p_target / m_peak;
+    const float reference = (p_reference > 0) ? p_reference : p_target;
+    const float raw_attenuation = (p_ratio == 1.0f)
+        ? p_target / level
+        : (p_target / reference) * std::pow(reference / level, p_ratio);
 
     float attenuation = raw_attenuation;
     if (attenuation < p_minLevel) attenuation = p_minLevel;

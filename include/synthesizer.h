@@ -28,6 +28,10 @@ class Synthesizer {
             float levelerTarget = 30000.0f;
             float levelerMaxGain = 1.9f;
             float levelerMinGain = 0.00001f;
+            float levelerRatio = 1.0f;
+            float levelerReference = 0.0f;
+            bool levelerRmsDetector = false;
+            float levelerRmsTime = 0.1f;
         };
 
         struct Parameters {
