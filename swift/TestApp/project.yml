@@ -1,0 +1,25 @@
+name: EngineSimTester
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  EngineSim:
+    path: ../..
+targets:
+  EngineSimTester:
+    type: application
+    platform: iOS
+    sources: [EngineSimTester]
+    dependencies:
+      - package: EngineSim
+        product: EngineSim
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.enginesimtester
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Engine Sim
+        TARGETED_DEVICE_FAMILY: "1"

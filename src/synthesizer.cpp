@@ -250,6 +250,15 @@ void Synthesizer::renderAudio() {
         m_filters[i].jitterFilter.setJitterScale(m_audioParameters.inputSampleNoise);
     }
 
+    m_levelingFilter.p_maxLevel = m_audioParameters.levelerMaxGain;
+    m_levelingFilter.p_minLevel = m_audioParameters.levelerMinGain;
+    m_levelingFilter.p_ratio = m_audioParameters.levelerRatio;
+    m_levelingFilter.p_reference = m_audioParameters.levelerReference;
+    m_levelingFilter.p_detector = m_audioParameters.levelerRmsDetector
+        ? LevelingFilter::Detector::Rms
+        : LevelingFilter::Detector::Peak;
+    m_levelingFilter.setRmsTimeConstant(m_audioParameters.levelerRmsTime, m_audioSampleRate);
+
     for (int i = 0; i < n; ++i) {
         m_audioBuffer.write(renderAudio(i));
     }

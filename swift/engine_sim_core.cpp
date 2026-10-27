@@ -4,6 +4,7 @@
 #include "ls_v8_impulse_response.h"
 #include "f136_v8_builder.h"
 #include "f136_v8_impulse_response.h"
+#include "m177_v8_builder.h"
 #include "wav_reader.h"
 
 #include "engine.h"
@@ -23,11 +24,28 @@
 
 struct EngineSimCore {
     bool ignition = false;
+    bool rpmScaledLeveler = false;
+    float levelerTarget = 0;
     EngineSimProfile profile = ENGINE_SIM_PROFILE_LS_V8;
     LsV8 ls;
     F136V8 f136;
+    M177V8 m177;
     PistonEngineSimulator *simulator = nullptr;
-    Engine *engine() const { return profile == ENGINE_SIM_PROFILE_LS_V8 ? ls.engine : f136.engine; }
+    Engine *engine() const {
+        if (profile == ENGINE_SIM_PROFILE_LS_V8) return ls.engine;
+        if (profile == ENGINE_SIM_PROFILE_F136_V8) return f136.engine;
+        return m177.engine;
+    }
+    Vehicle *vehicle() const {
+        if (profile == ENGINE_SIM_PROFILE_LS_V8) return ls.vehicle;
+        if (profile == ENGINE_SIM_PROFILE_F136_V8) return f136.vehicle;
+        return m177.vehicle;
+    }
+    Transmission *transmission() const {
+        if (profile == ENGINE_SIM_PROFILE_LS_V8) return ls.transmission;
+        if (profile == ENGINE_SIM_PROFILE_F136_V8) return f136.transmission;
+        return m177.transmission;
+    }
 };
 
 namespace {
@@ -43,12 +61,14 @@ void waitForRender(Synthesizer &synth) {
 }
 
 EngineSimCore *engine_sim_create(EngineSimProfile profile, int simulationFrequency) {
-    if (profile != ENGINE_SIM_PROFILE_LS_V8 && profile != ENGINE_SIM_PROFILE_F136_V8) return nullptr;
+    if (profile != ENGINE_SIM_PROFILE_LS_V8 && profile != ENGINE_SIM_PROFILE_F136_V8
+        && profile != ENGINE_SIM_PROFILE_M177_V8) return nullptr;
     try {
     std::unique_ptr<EngineSimCore, decltype(&engine_sim_destroy)> core(new EngineSimCore, engine_sim_destroy);
     core->profile = profile;
     if (profile == ENGINE_SIM_PROFILE_LS_V8) buildLsV8(&core->ls);
-    else buildF136V8(&core->f136);
+    else if (profile == ENGINE_SIM_PROFILE_F136_V8) buildF136V8(&core->f136);
+    else buildM177V8(&core->m177);
 
     Engine *engine = core->engine();
     core->simulator = new PistonEngineSimulator;
@@ -56,9 +76,7 @@ EngineSimCore *engine_sim_create(EngineSimProfile profile, int simulationFrequen
     Simulator::Parameters simulatorParams;
     simulatorParams.systemType = Simulator::SystemType::NsvOptimized;
     sim->initialize(simulatorParams);
-    sim->loadSimulation(engine,
-                        profile == ENGINE_SIM_PROFILE_LS_V8 ? core->ls.vehicle : core->f136.vehicle,
-                        profile == ENGINE_SIM_PROFILE_LS_V8 ? core->ls.transmission : core->f136.transmission);
+    sim->loadSimulation(engine, core->vehicle(), core->transmission());
     sim->setFluidSimulationSteps(8);
 
     sim->setSimulationFrequency(
@@ -68,12 +86,11 @@ EngineSimCore *engine_sim_create(EngineSimProfile profile, int simulationFrequen
     audio.inputSampleNoise = static_cast<float>(engine->getInitialJitter());
     audio.airNoise = static_cast<float>(engine->getInitialNoise());
     audio.dF_F_mix = static_cast<float>(engine->getInitialHighFrequencyGain());
-    // Headroom: the leveler smooths its gain, so peaks overshoot the target and
-    // clip at the stock 30000.
-    audio.levelerTarget = 16000.0f;
     sim->synthesizer().setAudioParameters(audio);
+    engine_sim_set_leveler_mode(core.get(), ENGINE_SIM_LEVELER_RPM_SCALED);
 
     std::vector<int16_t> samples;
+    // The M177 shares the F136's muffled exhaust response (mild_exhaust_reverb).
     const uint8_t *irBytes = profile == ENGINE_SIM_PROFILE_LS_V8 ? kLsV8ImpulseResponseWav : kF136V8ImpulseResponseWav;
     const size_t irSize = profile == ENGINE_SIM_PROFILE_LS_V8 ? kLsV8ImpulseResponseWavSize : kF136V8ImpulseResponseWavSize;
     if (readWavPcm16Mono(irBytes, irSize, &samples)) {
@@ -102,7 +119,8 @@ void engine_sim_destroy(EngineSimCore *core) {
         delete core->simulator;
     }
     if (core->profile == ENGINE_SIM_PROFILE_LS_V8) destroyLsV8(&core->ls);
-    else destroyF136V8(&core->f136);
+    else if (core->profile == ENGINE_SIM_PROFILE_F136_V8) destroyF136V8(&core->f136);
+    else destroyM177V8(&core->m177);
     delete core;
 }
 
@@ -118,7 +136,68 @@ double engine_sim_profile_min_rpm(EngineSimProfile profile) {
 double engine_sim_profile_max_rpm(EngineSimProfile profile) {
     if (profile == ENGINE_SIM_PROFILE_LS_V8) return 8000;
     if (profile == ENGINE_SIM_PROFILE_F136_V8) return 9000;
+    if (profile == ENGINE_SIM_PROFILE_M177_V8) return 7200;
     return 0;
+}
+
+namespace {
+double redlineRpm(EngineSimProfile profile) {
+    if (profile == ENGINE_SIM_PROFILE_LS_V8) return 6000;
+    if (profile == ENGINE_SIM_PROFILE_F136_V8) return 8500;
+    return 7000;
+}
+
+// RMS loudness the RPM-scaled leveler aims for. The raw signal is far louder at
+// closed throttle than open, so a fixed partial-compression curve made the engine
+// quieter as the throttle opened; an explicit target keeps loudness rising with
+// both RPM and throttle on every engine.
+float rpmScaledTarget(const EngineSimCore *core) {
+    constexpr double fullScale = 9000;  // redline, wide open; peaks then sit just past the 20000 knee
+    const double rpm = std::fabs(core->engine()->getRpm());
+    const double speed = std::clamp(rpm / redlineRpm(core->profile), 0.1, 1.1);
+    const double throttle = std::clamp(core->engine()->getSpeedControl(), 0.0, 1.0);
+    return (float)(fullScale * std::pow(speed, 0.6) * (0.75 + 0.25 * throttle));
+}
+
+void updateLevelerTarget(EngineSimCore *core) {
+    if (!core->rpmScaledLeveler) return;
+    const float target = rpmScaledTarget(core);
+    // Ease over a few frames so a throttle stab doesn't step the gain.
+    core->levelerTarget = core->levelerTarget > 0
+        ? core->levelerTarget + 0.3f * (target - core->levelerTarget)
+        : target;
+    Synthesizer &synth = core->simulator->synthesizer();
+    Synthesizer::AudioParameters audio = synth.getAudioParameters();
+    audio.levelerTarget = core->levelerTarget;
+    synth.setAudioParameters(audio);
+}
+}
+
+void engine_sim_set_leveler_mode(EngineSimCore *core, int mode) {
+    if (!core) return;
+    Synthesizer &synth = core->simulator->synthesizer();
+    Synthesizer::AudioParameters audio = synth.getAudioParameters();
+    if (mode == ENGINE_SIM_LEVELER_PEAK) {
+        // Headroom: the leveler smooths its gain, so peaks overshoot the target and
+        // clip at the stock 30000.
+        audio.levelerRmsDetector = false;
+        audio.levelerRatio = 1.0f;
+        audio.levelerReference = 0.0f;
+        audio.levelerTarget = 16000.0f;
+        audio.levelerMaxGain = Synthesizer::AudioParameters().levelerMaxGain;
+    }
+    else {
+        // Level by RMS rather than peak, so spiky firing pulses don't pull loudness
+        // down, normalising fully to a target that follows RPM and throttle.
+        audio.levelerRmsDetector = true;
+        audio.levelerRatio = 1.0f;
+        audio.levelerReference = 0.0f;
+        audio.levelerMaxGain = 4.0f;  // weak raw signal at low RPM, wide open
+        core->levelerTarget = 0;
+        audio.levelerTarget = rpmScaledTarget(core);
+    }
+    core->rpmScaledLeveler = mode != ENGINE_SIM_LEVELER_PEAK;
+    synth.setAudioParameters(audio);
 }
 
 void engine_sim_hold_rpm(EngineSimCore *core, double rpm) {
@@ -172,6 +251,7 @@ static int renderLoop(EngineSimCore *core, int16_t *out, int sampleCount, bool s
         // overwrites unread input and is heard as periodic cracks. Hold physics back
         // while enough input is queued.
         if (sim->getSynthesizerInputLatency() < sim->getTargetSynthesizerLatency()) {
+            updateLevelerTarget(core);
             sim->startFrame(kFrameSeconds);
             while (sim->simulateStep()) { /* void */ }
             sim->endFrame();

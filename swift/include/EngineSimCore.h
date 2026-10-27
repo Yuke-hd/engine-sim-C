@@ -10,7 +10,8 @@ extern "C" {
 typedef struct EngineSimCore EngineSimCore;
 typedef enum {
     ENGINE_SIM_PROFILE_LS_V8 = 0,
-    ENGINE_SIM_PROFILE_F136_V8 = 1
+    ENGINE_SIM_PROFILE_F136_V8 = 1,
+    ENGINE_SIM_PROFILE_M177_V8 = 2
 } EngineSimProfile;
 
 // All operations on a handle must be serialized on a producer thread. Render
@@ -30,6 +31,15 @@ EngineSimProfile engine_sim_profile(const EngineSimCore *core);
 double engine_sim_profile_min_rpm(EngineSimProfile profile);
 double engine_sim_profile_max_rpm(EngineSimProfile profile);
 void engine_sim_destroy(EngineSimCore *core);
+
+#define ENGINE_SIM_LEVELER_PEAK 0
+#define ENGINE_SIM_LEVELER_RPM_SCALED 1
+
+/// Selects the output leveler. ENGINE_SIM_LEVELER_PEAK normalizes peaks to a fixed
+/// level (the original behaviour, flat loudness across RPM);
+/// ENGINE_SIM_LEVELER_RPM_SCALED (the default) levels by RMS to a target that
+/// rises with RPM and throttle, so the engine gets louder as it revs and opens.
+void engine_sim_set_leveler_mode(EngineSimCore *core, int mode);
 
 /// Enables ignition and the dynamometer and holds the crankshaft at `rpm`.
 void engine_sim_hold_rpm(EngineSimCore *core, double rpm);
